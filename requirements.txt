@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+websockets
+pydantic
+pydantic-settings
+numpy
+scipy
+sounddevice
+soundfile
+faster-whisper==1.2.1
+twitchio==3.3.2
+obsws-python==1.8.0
+httpx
+keyring==25.7.0
+num2words==0.5.14

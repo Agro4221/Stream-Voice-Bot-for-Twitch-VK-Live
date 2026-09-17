@@ -1,0 +1,299 @@
+# 🎙️ Stream Voice Bot
+
+> Локальный Windows-бот для озвучки чата стрима через **Silero TTS**, Twitch Channel Points и VK Видео Live. Голос можно напрямую отдавать в **OBS через VB-CABLE**, а очередь озвучки управляется из локальной админки.
+
+![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Silero](https://img.shields.io/badge/TTS-Silero%20V5-7C3AED)
+![Twitch](https://img.shields.io/badge/Twitch-EventSub-9146FF?logo=twitch&logoColor=white)
+![VK Video Live](https://img.shields.io/badge/VK%20Video%20Live-chat-0077FF)
+![OBS](https://img.shields.io/badge/OBS-ready-302E31?logo=obsstudio&logoColor=white)
+
+## ✨ Что умеет
+
+| Возможность | Статус |
+|---|---|
+| 🔊 Silero V5 RU, локальная озвучка | ✅ |
+| 🎚️ Профили `Обычная` / `Громкая` | ✅ |
+| ⏯️ Pause / Resume / Stop / Skip / очистка очереди | ✅ |
+| 🔁 Повтор одного или нескольких сообщений | ✅ |
+| 📜 История озвучки | ✅ |
+| 🟣 Twitch OAuth | ✅ |
+| 🎁 Twitch Channel Points → текст → TTS | ✅ |
+| 🔵 VK Видео Live → чат → TTS | ✅ |
+| 🎧 VB-CABLE → OBS, 48 kHz stereo | ✅ |
+| 🎤 faster-whisper STT | ✅, опционально |
+| 📝 Browser Source субтитров | ✅, опционально |
+| 💾 Хранение Twitch/VK секретов в Windows Credential Manager | ✅ |
+
+## 🧩 Архитектура
+
+```text
+                 ┌──────────────────────┐
+                 │     Twitch Chat      │
+                 └──────────┬───────────┘
+                            │
+                 Channel Points / Chat
+                            │
+┌───────────────────┐       ▼       ┌───────────────────────┐
+│  VK Видео Live    │ ──►  BOT  ◄── │     Local Admin UI    │
+└───────────────────┘               └───────────┬───────────┘
+                                                │
+                                                ▼
+                                      ┌───────────────────┐
+                                      │  TTS Queue        │
+                                      │  Silero V5 RU     │
+                                      └─────────┬─────────┘
+                                                │ 48 kHz stereo
+                                                ▼
+                                      ┌───────────────────┐
+                                      │    VB-CABLE       │
+                                      └─────────┬─────────┘
+                                                ▼
+                                      ┌───────────────────┐
+                                      │       OBS         │
+                                      │ stream / recording│
+                                      └───────────────────┘
+```
+
+## 🚀 Быстрый старт
+
+### Вариант 1 — буквально двойной клик
+
+Запусти:
+
+```text
+start_bot.bat
+```
+
+Скрипт сам:
+
+1. найдёт или установит Python 3.11;
+2. создаст `.venv` рядом с проектом;
+3. поставит Python-зависимости;
+4. установит PyTorch;
+5. найдёт или установит Node.js LTS;
+6. установит зависимости VK bridge через `npm` локально в проекте;
+7. найдёт или установит FFmpeg;
+8. скачает `models/v5_ru.pt`, если модель отсутствует;
+9. запустит бота.
+
+После запуска открой:
+
+**http://127.0.0.1:8787**
+
+### Вариант 2 — отдельно установить окружение
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+```
+
+После этого:
+
+```text
+start_bot.bat
+```
+
+## 🤖 Silero TTS
+
+Используется локальная модель **`v5_ru.pt`**. Официальная документация Silero показывает standalone-загрузку именно по адресу `https://models.silero.ai/models/tts/ru/v5_ru.pt`; модель поддерживает голоса `aidar`, `baya`, `kseniya`, `xenia`, `eugene` и частоты 8/24/48 kHz.
+
+По умолчанию бот работает на **48 kHz**, а для VB-CABLE использует stereo, чтобы избежать изменения высоты/скорости звука из-за рассинхронизации sample rate.
+
+Модель можно:
+
+- положить вручную в `models/v5_ru.pt`;
+- положить в корень проекта как `v5_ru.pt` — бот перенесёт её в `models`;
+- вообще не класть: установщик скачает её автоматически.
+
+## 🎚️ Настройки Silero
+
+В админке:
+
+- отдельный голос и громкость для `normal`;
+- отдельный голос и громкость для `loud`;
+- общая скорость;
+- максимальная длина сообщения;
+- тест обычного и громкого профиля.
+
+Изменённые поля не должны перетираться автообновлением интерфейса. Кнопка сохранения записывает значения в локальную SQLite-базу проекта.
+
+## 🟣 Twitch
+
+1. Создай приложение в Twitch Developer Console.
+2. Используй Redirect URI:
+
+```text
+http://localhost:8787/auth/twitch/callback
+```
+
+3. В админке укажи Client ID и Client Secret.
+4. Пройди OAuth.
+5. После первого сохранения Secret повторно вводить его не требуется.
+
+Client ID и обычные настройки хранятся локально в SQLite. Client Secret, access token и refresh token хранятся через Windows Credential Manager.
+
+### Channel Points
+
+Для награды можно выбрать:
+
+- включена / выключена;
+- профиль TTS;
+- auto fulfill;
+- обязательный текст от зрителя;
+- подсказку для поля ввода.
+
+## 🔵 VK Видео Live
+
+Для чата используется отдельный readonly Node bridge на базе `vklive-message-client`. Это сторонний клиент, а не официальный SDK.
+
+Допустимые значения канала:
+
+```text
+username
+```
+
+или
+
+```text
+https://live.vkvideo.ru/username
+```
+
+`SERVICE_KEY` и `SECURE_KEY` сохраняются в Windows Credential Manager и не попадают в SQLite.
+
+## 🎧 OBS + VB-CABLE
+
+Рекомендуемый аудиотракт:
+
+```text
+Stream Voice Bot
+      ↓
+CABLE Input
+      ↓
+CABLE Output
+      ↓
+OBS
+```
+
+В OBS добавь `CABLE Output` как Audio Input Capture.
+
+### Чтобы слышать голос самому
+
+В OBS открой:
+
+```text
+Settings → Audio → Advanced → Monitoring Device
+```
+
+Выбери **свои наушники/колонки**.
+
+Затем:
+
+```text
+Edit → Advanced Audio Properties
+```
+
+Для источника `CABLE Output` установи:
+
+```text
+Audio Monitoring → Monitor and Output
+```
+
+Получится:
+
+```text
+CABLE Output → OBS → зрители
+                    └→ твои наушники
+```
+
+Не отправляй мониторинг обратно на тот же вход, который OBS захватывает, иначе появляется петля/эхо.
+
+> **VB-CABLE:** драйвер виртуального аудиокабеля устанавливается отдельно и не включён в репозиторий. Это системный аудиодрайвер, поэтому его автоматическая установка не выполняется тихо из обычного скрипта проекта.
+
+## 🎤 STT / субтитры
+
+STT реализован через `faster-whisper` и оставлен **опциональным**.
+
+Первый запуск выбранной Whisper-модели может скачать веса с Hugging Face. Это не кладётся в Git-репозиторий.
+
+Раздел STT сохраняет свои настройки в локальной базе и не должен сбрасывать их при автообновлении UI.
+
+Browser Source субтитров доступен по адресу:
+
+```text
+http://127.0.0.1:8787/subtitles
+```
+
+## 📦 Что хранится где
+
+```text
+Stream Voice Bot/
+├─ stream_voice_bot/       # исходный код
+├─ models/                 # локальные ML-модели
+├─ data/                   # SQLite и локальные настройки
+├─ scripts/                # установка и служебные скрипты
+├─ start_bot.bat           # запуск / автоустановка
+├─ start_bot_minimized.bat # запуск в отдельном окне
+├─ requirements.txt        # Python-зависимости
+└─ README.md
+```
+
+Никаких путей вроде `C:\Users\...` проект не использует: рабочие файлы строятся относительно корня распакованного проекта.
+
+## 🔐 Безопасность
+
+Не коммить в Git:
+
+```text
+*.sqlite3
+.venv/
+node_modules/
+__pycache__/
+*.wav
+*.log
+```
+
+Секреты Twitch/VK не хранятся в репозитории.
+
+В репозитории есть отдельный документ: [`SECURITY.md`](SECURITY.md).
+
+## 📦 GitHub и модель `v5_ru.pt`
+
+Есть важный нюанс: GitHub блокирует обычные Git-файлы больше **100 MiB**. Для больших бинарных файлов GitHub рекомендует Git LFS; либо большие бинарники можно распространять через GitHub Releases.
+
+Поэтому репозиторий устроен так, чтобы работать **без модели в Git**: установщик сам скачивает официальный `v5_ru.pt`. Для отдельного offline/portable-релиза можно положить `models/v5_ru.pt` в локальную папку и запустить `scripts\make_portable_release.ps1` — скрипт добавит модель в release-архив.
+
+## 🧰 Полезные команды
+
+Проверить окружение:
+
+```text
+check_tts_setup.bat
+```
+
+Диагностика аудио:
+
+```text
+tools\diagnose_audio.bat
+```
+
+Запуск в минимизированном окне:
+
+```text
+start_bot_minimized.bat
+```
+
+## 🗺️ Roadmap
+
+- более удобная страница настройки OBS;
+- дополнительные правила для VK-наград/событий, если появится стабильный публичный API;
+- дополнительные TTS-профили;
+- более подробная статистика очереди.
+
+## 📄 Лицензии сторонних компонентов
+
+Проект использует сторонние зависимости, в том числе PyTorch, Silero, faster-whisper, TwitchIO и `vklive-message-client`. Их собственные лицензии и условия распространения продолжают действовать независимо от лицензии этого проекта.
+
+Исходный код **Stream Voice Bot** распространяется под лицензией MIT.
+
+Модель `v5_ru.pt` является сторонним компонентом и имеет собственные условия лицензирования Silero; она не покрывается лицензией MIT этого проекта.

@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Voice Bot</title>
+<style>
+:root{
+  --bg:#0e1117;--panel:#171b24;--panel2:#1e2430;--text:#eef2f7;
+  --muted:#9ca8b8;--accent:#7aa2ff;--danger:#ff6b6b;--ok:#61d095;
+  --border:#2a3240;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,Arial,sans-serif}
+header{padding:22px 28px;border-bottom:1px solid var(--border);background:#11151c;display:flex;justify-content:space-between;gap:20px;align-items:center}
+h1,h2,h3{margin:0 0 10px} h1{font-size:22px} h2{font-size:16px}
+main{max-width:1250px;margin:0 auto;padding:22px;display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
+.wide{grid-column:1/-1}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,select,button,textarea{font:inherit}
+input,select,textarea{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:9px}
+textarea{width:100%;min-height:82px;resize:vertical}
+button{border:0;border-radius:9px;padding:9px 12px;background:#2d3950;color:white;cursor:pointer}
+button:hover{filter:brightness(1.12)}
+button.danger{background:#7a2e36} button.ok{background:#245d46}
+button.secondary{background:#303746}
+.small{font-size:12px;color:var(--muted)}
+.stat{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.pill{padding:4px 8px;border-radius:999px;background:var(--panel2)}
+.current{background:#18263c;border-color:#34527f}
+.queue-item{border:1px solid var(--border);padding:9px;border-radius:9px;margin-top:7px}
+.history{max-height:450px;overflow:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top;text-align:left}
+td.text{max-width:520px;word-break:break-word}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
+.field{min-width:150px}
+.notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.profile-box{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
+.oktext{color:var(--ok)} .badtext{color:var(--danger)}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Stream Voice Bot</h1><div class="small">TTS queue / Silero V5 / локальный аудиовывод / 2 профиля голоса</div></div>
+  <div id="status" class="pill">Подключение...</div>
+</header>
+
+<main>
+<section class="card wide">
+  <h2>Интеграция</h2>
+  <div class="row">
+    <span id="twitchStatus" class="pill">Twitch: не подключён</span>
+    <span id="sttStatus" class="pill">STT: остановлен</span>
+  </div>
+  <div class="notice" style="margin-top:10px">
+    Субтитры для OBS: <code>http://127.0.0.1:8787/subtitles</code>
+  </div>
+</section>
+<section class="card">
+  <h2>Сейчас</h2>
+  <div id="current">Ничего не озвучивается</div>
+  <div id="audioStatus" class="small" style="margin-top:8px"></div>
+  <div class="actions" style="margin-top:12px">
+    <button class="secondary" onclick="api('/api/queue/pause')">Pause</button>
+    <button class="ok" onclick="api('/api/queue/resume')">Resume</button>
+    <button class="danger" onclick="api('/api/queue/stop')">Stop</button>
+    <button class="secondary" onclick="api('/api/queue/skip')">Skip</button>
+    <button class="secondary" onclick="api('/api/queue/clear')">Clear queue</button>
+  </div>
+</section>
+
+
+<section class="card">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div>
+      <h2>Silero — озвучка</h2>
+      <div class="small">Два профиля голоса, единая скорость и ограничение длины.</div>
+    </div>
+    <span id="ttsDirty" class="pill" style="display:none">Есть несохранённые изменения</span>
+  </div>
+  <div class="stat"><span>Модель</span><span id="model"></span></div>
+  <div class="notice" style="margin-top:8px">Громкость нормализуется перед усилением, затем применяется громкость профиля.</div>
+  <div class="profile-grid" style="margin-top:12px">
+    <div class="profile-box">
+      <div class="row" style="justify-content:space-between"><b>Обычная</b><span class="pill">normal</span></div>
+      <div class="field" style="margin-top:9px"><label>Голос</label><select id="normal_speaker">
+        <option>aidar</option><option>baya</option><option>kseniya</option><option>xenia</option><option>eugene</option>
+      </select></div>
+      <div class="field" style="margin-top:9px"><label>Громкость ×</label><input id="normal_volume" type="number" min="0" max="2.5" step=".05" style="width:100%"></div>
+    </div>
+    <div class="profile-box">
+      <div class="row" style="justify-content:space-between"><b>Громкая</b><span class="pill">loud</span></div>
+      <div class="field" style="margin-top:9px"><label>Голос</label><select id="loud_speaker">
+        <option>aidar</option><option>baya</option><option>kseniya</option><option>xenia</option><option>eugene</option>
+      </select></div>
+      <div class="field" style="margin-top:9px"><label>Громкость ×</label><input id="loud_volume" type="number" min="0" max="2.5" step=".05" style="width:100%"></div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <div class="field"><label>Скорость</label><input id="speed" type="number" min=".5" max="1.5" step=".05"></div>
+    <div class="field"><label>Макс. символов</label><input id="max_chars" type="number" min="1" max="1000"></div>
+  </div>
+  <div class="actions" style="margin-top:10px">
+    <button onclick="saveSettings()">Сохранить настройки</button>
+    <button class="secondary" onclick="testTts('normal')">Тест обычной</button>
+    <button class="secondary" onclick="testTts('loud')">Тест громкой</button>
+    <button onclick="setProfile('normal')">Выбрать обычную</button>
+    <button onclick="setProfile('loud')">Выбрать громкую</button>
+  </div>
+  <div id="testResult" class="small" style="margin-top:8px"></div>
+</section>
+
+
+<section class="card">
+  <h2>Аудиовывод</h2>
+  <div class="row">
+    <select id="device" style="flex:1"></select>
+    <button onclick="saveDevice()">Применить</button>
+    <button class="secondary" onclick="audioTest()">Тест звука</button>
+  </div>
+  <div class="small" style="margin-top:8px">
+    Вывод идёт напрямую из Python-аудиодвижка. AIMP не открывается.
+    В OBS затем можно захватить аудиосессию приложения или выбранное устройство.
+  </div>
+</section>
+
+<section class="card wide">
+  <h2>OBS: мониторинг голоса</h2>
+  <div class="small">Бот отдаёт звук в <b>CABLE Input</b>, OBS забирает его через <b>CABLE Output</b>. Чтобы слышать этот же голос в наушниках, мониторить нужно уже источник внутри OBS — не CABLE Output обратно в OBS.</div>
+  <div class="row" style="margin-top:10px">
+    <span class="pill">1. Settings → Audio → Advanced → Monitoring Device</span>
+    <span class="pill">2. Выбери наушники/колонки</span>
+    <span class="pill">3. Источник голоса → Monitor and Output</span>
+  </div>
+  <div class="notice" style="margin-top:10px">Не выбирай для Monitoring Device тот же вход, который OBS захватывает обратно: иначе возможны эхо или аудиопетля.</div>
+</section>
+
+<section class="card">
+  <h2>Быстро добавить озвучку</h2>
+  <textarea id="text" placeholder="Текст для тестовой озвучки..."></textarea>
+  <div class="row" style="margin-top:8px">
+    <input id="username" value="admin" placeholder="Пользователь">
+    <select id="profile">
+      <option value="normal">Обычная</option>
+      <option value="loud">Громкая</option>
+    </select>
+    <button onclick="enqueue()">Добавить в очередь</button>
+  </div>
+</section>
+
+
+<section class="card wide">
+  <h2>Twitch</h2>
+  <div class="row">
+    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="text" style="width:100%" autocomplete="off"></div>
+    <div class="field" style="flex:1"><label>Client Secret</label><input id="twitch_secret" type="password" style="width:100%" autocomplete="new-password" placeholder="не нужно вводить повторно"></div>
+    <div class="field" style="flex:1"><label>Redirect URI</label><input id="twitch_redirect" type="text" style="width:100%" value="http://localhost:8787/auth/twitch/callback"></div>
+  </div>
+  <div class="actions" style="margin-top:10px">
+    <button onclick="saveTwitch()">Сохранить Twitch</button>
+    <button class="secondary" onclick="testTwitchCredentials()">Проверить сохранение Secret</button>
+    <button class="ok" onclick="connectTwitch()">Подключить / обновить</button>
+    <button class="secondary" onclick="disconnectTwitch()">Отключить</button>
+    <button class="secondary" onclick="loadRewards()">Загрузить Channel Points</button>
+  </div>
+  <div id="twitchSecretState" class="small" style="margin-top:8px"></div>
+  <div class="small" style="margin-top:8px">
+    Client ID сохраняется локально, а Client Secret/access/refresh tokens хранятся в Windows Credential Manager. Повторно вводить секрет после перезапуска не нужно.
+    Redirect URI должен точно совпадать с зарегистрированным в Twitch Developer Console.
+  </div>
+  <div id="twitchInfo" class="small" style="margin-top:8px"></div>
+
+  <h3 style="margin-top:18px">Награды Channel Points</h3>
+  <div class="small">
+    Включи «требовать текст», задай подсказку и сохрани правило.
+    Тогда Twitch покажет зрителю поле ввода перед активацией награды.
+  </div>
+  <div id="rewards"></div>
+</section>
+
+<section class="card wide">
+  <h2>VK Видео Live</h2>
+  <div class="row">
+    <div class="field" style="flex:1"><label>Канал VK Видео Live</label><input id="vk_channel" type="text" style="width:100%" placeholder="логин канала или https://live.vkvideo.ru/username"></div>
+    <span id="vkStatus" class="pill">VK Видео Live: не настроен</span>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <div class="field" style="flex:1"><label>VK_SERVICE_KEY</label><input id="vk_service" type="password" style="width:100%" autocomplete="new-password" placeholder="не вводить повторно после сохранения"></div>
+    <div class="field" style="flex:1"><label>VK_SECURE_KEY</label><input id="vk_secure" type="password" style="width:100%" autocomplete="new-password" placeholder="не вводить повторно после сохранения"></div>
+  </div>
+  <div class="actions" style="margin-top:10px">
+    <button onclick="saveVk()">Сохранить</button>
+    <button class="secondary" onclick="saveVkCredentials()">Сохранить ключи</button>
+    <button class="ok" onclick="startVk()">Подключить чат</button>
+    <button class="danger" onclick="stopVk()">Отключить</button>
+  </div>
+  <div class="small" style="margin-top:8px">
+    Чат VK теперь подключается через readonly-клиент для актуального домена live.vkvideo.ru. Для чтения сообщений ключи SERVICE/SECURE не требуются; они остаются сохранены в защищённом хранилище для будущих DevAPI-функций.
+  </div>
+  <div id="vkInfo" class="small" style="margin-top:8px"></div>
+</section>
+
+<section class="card wide">
+  <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>STT / Субтитры</h2><div class="small">STT опционален; настройки не сбрасываются автообновлением.</div></div><span id="sttDirty" class="pill" style="display:none">Есть несохранённые изменения</span></div>
+  <div class="row">
+    <div class="field"><label>Модель</label><select id="stt_model">
+      <option>large-v3-turbo</option><option>large-v3</option><option>medium</option><option>small</option>
+    </select></div>
+    <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
+    <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
+    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="4"></div>
+    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".5"></div>
+    <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
+  </div>
+  <div class="actions" style="margin-top:10px">
+    <button onclick="saveStt()">Сохранить STT</button>
+    <button class="ok" onclick="startStt()">Запустить STT</button>
+    <button class="danger" onclick="stopStt()">Остановить STT</button>
+  </div>
+  <div class="small" style="margin-top:8px">Субтитры можно пока не использовать. Первый запуск модели STT может скачать модель с Hugging Face. На RTX 3060 сначала пробуем CUDA; при ошибке приложение автоматически попытается CPU.</div>
+  <div id="sttInfo" class="small" style="margin-top:8px"></div>
+</section>
+
+<section class="card wide">
+  <h2>Очередь</h2>
+  <div id="queue"></div>
+</section>
+
+<section class="card wide">
+  <div class="row" style="justify-content:space-between">
+    <h2>История / повтор</h2>
+    <button class="secondary" onclick="repeatSelected()">Повторить выбранные</button>
+  </div>
+  <div class="history">
+    <table>
+      <thead><tr><th></th><th>Время</th><th>Пользователь</th><th>Профиль</th><th>Текст</th><th>Статус</th><th></th></tr></thead>
+      <tbody id="history"></tbody>
+    </table>
+  </div>
+</section>
+</main>
+
+<script>
+async function api(url, options={}){
+  const r=await fetch(url,{headers:{'Content-Type':'application/json'},...options});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.detail||'HTTP '+r.status);
+  return data;
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+let refreshBusy=false;
+
+function isUserEditing(el, serverValue){
+  if(!el) return true;
+  if(document.activeElement===el) return true;
+  if(el.dataset.userEdited==='1') return true;
+  // Safety net: if the DOM value differs from the last server value, treat it as a local draft.
+  if(el.dataset.serverValue!==undefined && String(el.value)!==String(el.dataset.serverValue)) return true;
+  return false;
+}
+
+function writeServerValue(id, value){
+  const el=document.getElementById(id);
+  if(!el || isUserEditing(el, value)) return;
+  const v=(value===null || value===undefined)?'':String(value);
+  el.value=v;
+  el.dataset.serverValue=v;
+}
+
+async function refresh(){
+  if(refreshBusy) return;
+  refreshBusy=true;
+  try{
+    const [s,h,dev]=await Promise.all([api('/api/state'),api('/api/history?limit=120'),api('/api/audio/devices')]);
+    document.getElementById('status').textContent='Работает';
+    document.getElementById('status').className='pill oktext';
+
+    const ae=s.audio.last_error;
+    document.getElementById('audioStatus').innerHTML=ae
+      ? '<span class="badtext">Аудио: '+esc(ae)+'</span>'
+      : (s.audio.device
+          ? 'Аудио: '+esc(s.audio.device)+' · '+esc(s.audio.sample_rate)+' Hz'
+          : 'Аудио ещё не запускалось');
+
+    document.getElementById('model').textContent=s.model.exists?'v5_ru.pt ✓':'v5_ru.pt не найден — запусти установку';
+
+    // Twitch fields are loaded once; the secret itself is never written into the page.
+    if(!document.getElementById('twitch_id').dataset.loaded){
+      try{
+        const tc=await api('/api/twitch/config');
+        writeServerValue('twitch_id',tc.client_id||'');
+        writeServerValue('twitch_redirect',tc.redirect_uri||'http://localhost:8787/auth/twitch/callback');
+        document.getElementById('twitchSecretState').textContent=tc.secret_saved?'Client Secret сохранён в Windows Credential Manager ✓':'Client Secret не сохранён';
+        document.getElementById('twitch_id').dataset.loaded='1';
+      }catch(e){}
+    }
+
+    // VK channel keeps a local draft while the user edits it.
+    writeServerValue('vk_channel', s.vkplay.channel_id||'');
+    const vk=document.getElementById('vkStatus');
+    vk.textContent=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
+    document.getElementById('vkInfo').textContent=s.vkplay.message||'';
+    if(s.vkplay.service_key_saved || s.vkplay.secure_key_saved){
+      document.getElementById('vkInfo').textContent +=
+        ' · Keys: '+(s.vkplay.service_key_saved?'SERVICE ✓':'SERVICE —')+
+        ' / '+(s.vkplay.secure_key_saved?'SECURE ✓':'SECURE —');
+    }
+
+    const tw=document.getElementById('twitchStatus');
+    tw.textContent=s.twitch.authorized ? ('Twitch: '+(s.twitch.user.login||'подключён')+(s.twitch.connected?' · EventSub ✓':' · EventSub не запущен')) : 'Twitch: не авторизован';
+    const st=document.getElementById('sttStatus');
+    st.textContent=s.stt.running ? ('STT: работает · '+(s.stt.model||'')) : 'STT: остановлен';
+    document.getElementById('twitchInfo').textContent=s.twitch.message||'';
+    if(!document.getElementById('sttInfo').matches(':focus')){
+      document.getElementById('sttInfo').textContent=s.stt.message||'';
+    }
+
+    const ttsFields={
+      normal_speaker:s.profiles.normal.speaker,
+      normal_volume:s.profiles.normal.volume,
+      loud_speaker:s.profiles.loud.speaker,
+      loud_volume:s.profiles.loud.volume,
+      speed:s.settings.speed,
+      max_chars:s.settings.max_chars
+    };
+    Object.entries(ttsFields).forEach(([id,value])=>writeServerValue(id,value));
+    document.getElementById('profile').value=s.active_profile;
+    document.getElementById('ttsDirty').style.display=Object.keys(ttsFields).some(id=>{
+      const el=document.getElementById(id); return el?.dataset.userEdited==='1' || (el?.dataset.serverValue!==undefined && String(el.value)!==String(el.dataset.serverValue));
+    })?'inline-flex':'none';
+
+    const c=s.queue.current;
+    document.getElementById('current').innerHTML=c
+      ? `<div class="pill current"><b>${esc(c.username)}</b>: ${esc(c.text)}<br><span class="small">${c.profile==='loud'?'Громкая':'Обычная'} · ${s.queue.paused?'ПАУЗА':'Воспроизводится'}</span></div>`
+      : 'Ничего не озвучивается';
+
+    document.getElementById('queue').innerHTML=s.queue.queued.length
+      ? s.queue.queued.map((q,i)=>`<div class="queue-item"><b>${i+1}. ${esc(q.username)}</b> · <span class="pill">${q.profile==='loud'?'Громкая':'Обычная'}</span> · ${esc(q.text)}</div>`).join('')
+      : '<div class="small">Очередь пуста</div>';
+
+    const dsel=document.getElementById('device');
+    const sttInput=document.getElementById('stt_input');
+    if(!sttInput.dataset.loaded){
+      sttInput.innerHTML=dev.filter(d=>d.input_channels>0).map(d=>
+        `<option value="${d.id}">${d.id}: ${esc(d.name)} (${d.default_samplerate} Hz)</option>`).join('');
+      sttInput.dataset.loaded='1';
+    }
+    writeServerValue('stt_input', s.stt.input_device===null || s.stt.input_device===undefined ? '' : s.stt.input_device);
+
+    const sttFields={
+      stt_model:s.stt.model||'large-v3-turbo',
+      stt_language:s.stt.language||'ru',
+      stt_chunk:s.stt.chunk_seconds||4,
+      stt_overlap:s.stt.overlap_seconds??0.5,
+      stt_compute:s.stt.compute_type||'float16'
+    };
+    Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
+    document.getElementById('sttDirty').style.display=Object.keys(sttFields).concat(['stt_input']).some(id=>{
+      const el=document.getElementById(id); return el?.dataset.userEdited==='1' || (el?.dataset.serverValue!==undefined && String(el.value)!==String(el.dataset.serverValue));
+    })?'inline-flex':'none';
+
+    if(!dsel.dataset.loaded){
+      dsel.innerHTML=dev.filter(d=>d.output_channels>0).map(d=>
+        `<option value="${d.id}">${d.id}: ${esc(d.name)} (${d.default_samplerate} Hz)</option>`).join('');
+      dsel.dataset.loaded='1';
+    }
+    writeServerValue('device',s.settings.output_device===null ? '' : s.settings.output_device);
+
+    const selectedBefore=new Set([...document.querySelectorAll('.hist:checked')].map(x=>String(x.value)));
+    document.getElementById('history').innerHTML=h.map(x=>`
+      <tr>
+        <td><input type="checkbox" class="hist" value="${x.id}" ${selectedBefore.has(String(x.id))?'checked':''}></td>
+        <td>${esc(x.created_at)}</td>
+        <td>${esc(x.username)}</td>
+        <td><span class="pill">${x.profile==='loud'?'Громкая':'Обычная'}</span></td>
+        <td class="text">${esc(x.text)}</td>
+        <td>${esc(x.status)}</td>
+        <td><button class="secondary" onclick="repeatOne(${x.id})">Повтор</button></td>
+      </tr>`).join('');
+  }catch(e){
+    document.getElementById('status').textContent='Ошибка';
+    document.getElementById('status').className='pill badtext';
+    console.error(e);
+  }finally{
+    refreshBusy=false;
+  }
+}
+async function enqueue(){
+  const text=document.getElementById('text').value.trim();
+  const username=document.getElementById('username').value.trim()||'admin';
+  const profile=document.getElementById('profile').value;
+  if(!text) return;
+  try{await api('/api/queue',{method:'POST',body:JSON.stringify({text,username,source:'admin',profile})});document.getElementById('text').value='';refresh()}
+  catch(e){alert(e.message)}
+}
+async function saveSettings(){
+  try{
+    await api('/api/settings',{method:'POST',body:JSON.stringify({
+      normal_speaker:document.getElementById('normal_speaker').value,
+      normal_volume:parseFloat(document.getElementById('normal_volume').value),
+      loud_speaker:document.getElementById('loud_speaker').value,
+      loud_volume:parseFloat(document.getElementById('loud_volume').value),
+      speed:parseFloat(document.getElementById('speed').value),
+      max_chars:parseInt(document.getElementById('max_chars').value,10)
+    })});
+    ['normal_speaker','normal_volume','loud_speaker','loud_volume','speed','max_chars'].forEach(clearEditableState);
+    document.getElementById('ttsDirty').style.display='none';
+    document.getElementById('testResult').textContent='Настройки Silero сохранены.';
+    refresh();
+  }catch(e){alert(e.message)}
+}
+async function audioTest(){
+  try{
+    const x=await api('/api/audio/test',{method:'POST'});
+    document.getElementById('audioStatus').textContent='Тест звука OK: '+x.device+' · '+x.sample_rate+' Hz';
+  }catch(e){
+    document.getElementById('audioStatus').textContent='Ошибка теста звука: '+e.message;
+  }
+}
+async function saveDevice(){
+  try{
+    await api('/api/settings',{method:'POST',body:JSON.stringify({output_device:parseInt(document.getElementById('device').value,10)})});
+    clearEditableState('device');
+    refresh();
+  }catch(e){alert(e.message)}
+}
+async function testTts(profile='normal'){
+  const el=document.getElementById('testResult');
+  el.textContent='Генерирую...';
+  try{
+    await api('/api/tts/test?profile='+encodeURIComponent(profile),{method:'POST'});
+    el.textContent='Добавлено в очередь: профиль '+(profile==='loud'?'«Громкая»':'«Обычная»')+'.';
+    refresh();
+  }catch(e){el.textContent='Ошибка: '+e.message}
+}
+async function repeatOne(id){
+  const profile=(prompt('Профиль: normal или loud', 'normal')||'normal').toLowerCase();
+  try{await api('/api/repeat/'+id+'?profile='+encodeURIComponent(profile),{method:'POST'});refresh()}catch(e){alert(e.message)}
+}
+async function repeatSelected(){
+  const ids=[...document.querySelectorAll('.hist:checked')].map(x=>parseInt(x.value,10));
+  if(!ids.length){alert('Выбери сообщения');return}
+  const profile=(prompt('Профиль: normal или loud', 'normal')||'normal').toLowerCase();
+  try{await api('/api/repeat-many',{method:'POST',body:JSON.stringify({ids,profile})});refresh()}catch(e){alert(e.message)}
+}
+refresh();setInterval(refresh,1500);
+
+async function saveTwitch(){
+  try{
+    const secret=document.getElementById('twitch_secret').value.trim();
+    const x=await api('/api/twitch/config',{method:'POST',body:JSON.stringify({
+      client_id:document.getElementById('twitch_id').value.trim(),
+      client_secret:secret,
+      redirect_uri:document.getElementById('twitch_redirect').value.trim()
+    })});
+    document.getElementById('twitchSecretState').textContent='Client Secret сохранён в Windows Credential Manager ✓';
+    document.getElementById('twitch_secret').value='';
+    alert(x.message||'Сохранено.');
+  }catch(e){alert(e.message)}
+}
+async function testTwitchCredentials(){
+  try{
+    const x=await api('/api/twitch/credentials/test',{method:'POST'});
+    document.getElementById('twitchSecretState').textContent=
+      x.secret_saved ? 'Client Secret сохранён и читается ✓' : 'Client Secret не найден';
+  }catch(e){alert(e.message)}
+}
+async function connectTwitch(){
+  try{
+    const id=document.getElementById('twitch_id').value.trim();
+    const secret=document.getElementById('twitch_secret').value.trim();
+    await api('/api/twitch/config',{method:'POST',body:JSON.stringify({
+      client_id:id,
+      client_secret:secret,
+      redirect_uri:document.getElementById('twitch_redirect').value.trim()
+    })});
+    document.getElementById('twitch_secret').value='';
+    document.getElementById('twitchSecretState').textContent='Client Secret сохранён ✓';
+    window.open('/auth/twitch/start','_blank','width=900,height=750');
+  }catch(e){alert(e.message)}
+}
+async function disconnectTwitch(){
+  try{await api('/api/twitch/stop',{method:'POST'});refresh()}catch(e){alert(e.message)}
+}
+async function loadRewards(){
+  try{
+    const x=await api('/api/twitch/rewards');
+    const rules=await api('/api/twitch/rules');
+    const ruleMap=Object.fromEntries(rules.map(r=>[r.reward_id,r]));
+    document.getElementById('rewards').innerHTML=(x.data||[]).map(r=>{
+      const q=ruleMap[r.id];
+      const profile=q?.profile||'normal';
+      const enabled=q?.enabled ? 'checked' : '';
+      const fulfill=q?.auto_fulfill!==0 ? 'checked' : '';
+      const inputRequired = q?.user_input_required !== 0;
+      const promptText = q?.prompt || r.prompt || 'Введите текст для озвучки';
+      return `<div class="queue-item">
+        <b>${esc(r.title)}</b> · <span class="small">${r.cost} points · id ${esc(r.id)}</span>
+        <div class="row" style="margin-top:7px">
+          <select id="rp_${r.id}"><option value="normal" ${profile==='normal'?'selected':''}>Обычная</option><option value="loud" ${profile==='loud'?'selected':''}>Громкая</option></select>
+          <label style="display:inline"><input id="re_${r.id}" type="checkbox" ${enabled}> включена</label>
+          <label style="display:inline"><input id="rf_${r.id}" type="checkbox" ${fulfill}> auto fulfill</label>
+          <label style="display:inline"><input id="ri_${r.id}" type="checkbox" ${inputRequired?'checked':''} onchange="togglePrompt('${r.id}')"> требовать текст</label>
+        </div>
+        <div style="margin-top:7px">
+          <label>Подсказка зрителю</label>
+          <input id="rq_${r.id}" type="text" value="${esc(promptText)}" maxlength="200"
+                 style="width:min(700px,100%)" ${inputRequired?'':'disabled'}>
+        </div>
+        <div class="actions" style="margin-top:7px">
+          <button onclick="saveRewardRule('${encodeURIComponent(r.id)}','${encodeURIComponent(r.title)}')">Сохранить правило</button>
+        </div>
+      </div>`;
+    }).join('') || '<div class="small">Награды не найдены.</div>';
+  }catch(e){alert(e.message)}
+}
+function togglePrompt(id){
+  const on=document.getElementById('ri_'+id).checked;
+  document.getElementById('rq_'+id).disabled=!on;
+}
+async function saveRewardRule(idEncoded,titleEncoded){
+  const id=decodeURIComponent(idEncoded), title=decodeURIComponent(titleEncoded);
+  const required=document.getElementById('ri_'+id).checked;
+  try{
+    await api('/api/twitch/rules',{method:'POST',body:JSON.stringify({
+      reward_id:id,
+      reward_title:title,
+      enabled:document.getElementById('re_'+id).checked,
+      profile:document.getElementById('rp_'+id).value,
+      auto_fulfill:document.getElementById('rf_'+id).checked,
+      user_input_required:required,
+      prompt:document.getElementById('rq_'+id).value.trim()
+    })});
+    await loadRewards();
+    alert(required
+      ? 'Готово: Twitch теперь попросит текст перед активацией этой награды.'
+      : 'Готово: ввод текста для этой награды отключён.');
+  }catch(e){alert(e.message)}
+}
+
+async function saveVkCredentials(){
+  try{
+    const x=await api('/api/vkplay/credentials',{method:'POST',body:JSON.stringify({
+      service_key:document.getElementById('vk_service').value.trim(),
+      secure_key:document.getElementById('vk_secure').value.trim()
+    })});
+    document.getElementById('vk_service').value='';
+    document.getElementById('vk_secure').value='';
+    document.getElementById('vkInfo').textContent=
+      'SERVICE_KEY: '+(x.service_key_saved?'сохранён ✓':'не задан')+
+      ' · SECURE_KEY: '+(x.secure_key_saved?'сохранён ✓':'не задан');
+    refresh();
+  }catch(e){alert(e.message)}
+}
+
+function bindEditableState(id){
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('input',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });
+  el.addEventListener('change',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });
+}
+function clearEditableState(id){
+  const el=document.getElementById(id);
+  if(el){ delete el.dataset.userEdited; el.classList.remove('dirty'); }
+}
+
+[
+  'vk_channel',
+  'twitch_id',
+  'twitch_redirect',
+  'normal_speaker','normal_volume','loud_speaker','loud_volume','speed','max_chars',
+  'stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute',
+  'device'
+].forEach(bindEditableState);
+
+async function saveVk(){
+  try{
+    const channel=document.getElementById('vk_channel').value.trim();
+    await api('/api/vkplay/config',{method:'POST',body:JSON.stringify({channel_id:channel})});
+    clearEditableState('vk_channel');
+    refresh();
+  }catch(e){alert(e.message)}
+}
+async function startVk(){
+  try{const x=await api('/api/vkplay/start',{method:'POST'});document.getElementById('vkInfo').textContent=x.message||'VK Видео Live запущен';refresh();}
+  catch(e){document.getElementById('vkInfo').textContent='Ошибка VK Видео Live: '+e.message}
+}
+async function stopVk(){
+  try{await api('/api/vkplay/stop',{method:'POST'});refresh();}catch(e){alert(e.message)}
+}
+async function saveStt(){
+  try{
+    await api('/api/stt/config',{method:'POST',body:JSON.stringify({
+      model_name:document.getElementById('stt_model').value,
+      language:document.getElementById('stt_language').value.trim(),
+      input_device:parseInt(document.getElementById('stt_input').value,10),
+      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
+      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
+      compute_type:document.getElementById('stt_compute').value
+    })});
+    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute'].forEach(clearEditableState);
+    document.getElementById('sttDirty').style.display='none';
+    document.getElementById('sttInfo').textContent='STT настройки сохранены.';
+    refresh();
+  }catch(e){alert(e.message)}
+}
+async function startStt(){
+  try{const x=await api('/api/stt/start',{method:'POST'});document.getElementById('sttInfo').textContent=x.state?.message||'STT запущен';refresh()}catch(e){document.getElementById('sttInfo').textContent='Ошибка STT: '+e.message}
+}
+async function stopStt(){
+  try{await api('/api/stt/stop',{method:'POST'});refresh()}catch(e){alert(e.message)}
+}
+
+</script>
+</body>
+</html>
