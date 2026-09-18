@@ -41,6 +41,28 @@ jobs:
           if ($grepExit -gt 1) { exit $grepExit }
           if ($bad) { Write-Host $bad; exit 1 }
           exit 0
+  runtime-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU PyTorch
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Full dependency import + runtime smoke
+        shell: pwsh
+        run: |
+          python scripts/runtime_smoke.py
+
   node:
     runs-on: windows-latest
     defaults:
@@ -57,3 +79,6 @@ jobs:
         run: npm ci
       - name: Syntax check bridge
         run: node --check bridge.js
+      - name: Package export smoke
+        run: |
+          node --input-type=module -e "import * as m from 'vklive-message-client'; const C=m.default || m.VKPLMessageClient || m; if (typeof C !== 'function') process.exit(1); const c=new C({auth:'readonly',channels:['ci-smoke']}); if (!('socket' in c)) process.exit(2); console.log('vklive-message-client export smoke: OK')"
