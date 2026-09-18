@@ -269,21 +269,54 @@ class TTSQueue:
 
     def _worker(self):
         while self.running:
-            try: item, hid, profile=self.queue.get(timeout=.2)
-            except Empty: continue
-            with self.lock:
-                self.pending=[x for x in self.pending if x[1]!=hid]
-                self.current=(item,hid,profile)
-            self.db.set_history_status(hid,"playing"); self.on_change()
-            result="finished"; started=time.monotonic()
             try:
-                audio=self.model.generate(item.text, speaker=self._profile_speaker(profile), sample_rate=48000)
-                result=self.player.play(audio,48000,volume_db=self._profile_volume(profile))
-            except Exception as e:
-                self.player.last_error=f"{type(e).__name__}: {e}"; result="error"
-            self.db.set_history_status(hid,result,round(time.monotonic()-started,3))
-            with self.lock: self.current=None
-            self.on_change(); self.queue.task_done()
+                item, hid, profile = self.queue.get(timeout=.2)
+            except Empty:
+                continue
+
+            with self.lock:
+                self.pending = [x for x in self.pending if x[1] != hid]
+                self.current = (item, hid, profile)
+
+            result = "finished"
+            started = time.monotonic()
+            try:
+                try:
+                    self.db.set_history_status(hid, "playing")
+                except Exception as e:
+                    self.player.last_error = f"history-start: {type(e).__name__}: {e}"
+
+                self.on_change()
+
+                try:
+                    audio = self.model.generate(
+                        item.text,
+                        speaker=self._profile_speaker(profile),
+                        sample_rate=48000,
+                    )
+                    result = self.player.play(
+                        audio,
+                        48000,
+                        volume_db=self._profile_volume(profile),
+                    )
+                except Exception as e:
+                    self.player.last_error = f"{type(e).__name__}: {e}"
+                    result = "error"
+            finally:
+                try:
+                    self.db.set_history_status(
+                        hid,
+                        result,
+                        round(time.monotonic() - started, 3),
+                    )
+                except Exception as e:
+                    self.player.last_error = f"history-finish: {type(e).__name__}: {e}"
+                with self.lock:
+                    self.current = None
+                try:
+                    self.on_change()
+                finally:
+                    self.queue.task_done()
 
     def _profile_speaker(self, profile):
         fn=getattr(self,"_profile_speaker_getter",None); return fn(profile) if fn else self.speaker_getter()
