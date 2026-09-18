@@ -332,9 +332,6 @@ def create_app(root: Path) -> FastAPI:
             return
         redemption_id = event.get("id", "")
         eventsub_id = event.get("_eventsub_message_id")
-        dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
-        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
-            return
         reward = event.get("reward", {}) or {}
         reward_id = reward.get("id", "")
         rule = db.get_reward(reward_id)
@@ -344,6 +341,9 @@ def create_app(root: Path) -> FastAPI:
 
         if not rule or not int(rule["enabled"]):
             # Intentionally leave unconfigured redemptions untouched.
+            return
+        dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
+        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
         if not user_input:
             # When input is configured as required, an empty event is invalid;
