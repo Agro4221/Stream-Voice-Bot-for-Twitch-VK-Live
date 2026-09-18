@@ -256,6 +256,7 @@ class TTSQueue:
         self.model=model; self.player=player; self.speaker_getter=speaker_getter
         self.volume_setter=volume_setter or (lambda: 0.0); self.db=history_db; self.max_chars_getter=max_chars_getter
         self.queue=Queue(); self.pending=[]; self.current=None; self.running=True
+        self.cancelled_ids=set()
         self.lock=threading.RLock(); self.on_change=lambda: None
         self.thread=threading.Thread(target=self._worker, name="tts-worker", daemon=True); self.thread.start()
 
@@ -264,8 +265,10 @@ class TTSQueue:
         if len(item.text)>self.max_chars_getter(): raise ValueError(f"Text is too long (max {self.max_chars_getter()} chars)")
         if history_id is None:
             history_id=self.db.add_history(item.username,item.text,item.source,item.created_at,item.repeat_of,profile)
-        with self.lock: self.pending.append((item,history_id,profile))
-        self.queue.put((item,history_id,profile)); self.on_change(); return history_id
+        with self.lock:
+            self.pending.append((item, history_id, profile))
+            self.queue.put((item, history_id, profile))
+        self.on_change(); return history_id
 
     def _worker(self):
         while self.running:
@@ -276,7 +279,24 @@ class TTSQueue:
 
             with self.lock:
                 self.pending = [x for x in self.pending if x[1] != hid]
-                self.current = (item, hid, profile)
+                canceled = hid in self.cancelled_ids
+                if canceled:
+                    self.cancelled_ids.discard(hid)
+                else:
+                    self.current = (item, hid, profile)
+
+            if canceled:
+                try:
+                    self.db.set_history_status(hid, "cleared")
+                except Exception as e:
+                    self.player.last_error = f"history-clear: {type(e).__name__}: {e}"
+                try:
+                    self.on_change()
+                except Exception:
+                    pass
+                finally:
+                    self.queue.task_done()
+                continue
 
             result = "finished"
             started = time.monotonic()
@@ -347,10 +367,14 @@ class TTSQueue:
         removed_ids = []
         with self.lock:
             removed_ids = [hid for _, hid, _ in self.pending]
+            self.cancelled_ids.update(removed_ids)
             self.pending.clear()
-        while True:
-            try: self.queue.get_nowait(); self.queue.task_done()
-            except Empty: break
+            while True:
+                try:
+                    self.queue.get_nowait()
+                    self.queue.task_done()
+                except Empty:
+                    break
         if removed_ids and hasattr(self.db, "mark_pending_history"):
             self.db.mark_pending_history(removed_ids, status="cleared")
         self.on_change()
