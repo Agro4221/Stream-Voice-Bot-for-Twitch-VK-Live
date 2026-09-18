@@ -59,6 +59,11 @@ class Database:
                 UNIQUE(platform, message_id)
             );
             CREATE INDEX IF NOT EXISTS idx_chat_created_at ON chat_messages(created_at);
+            CREATE TABLE IF NOT EXISTS event_dedupe (
+                message_id TEXT PRIMARY KEY,
+                seen_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_event_dedupe_seen_at ON event_dedupe(seen_at);
             """)
             hcols = {r["name"] for r in conn.execute("PRAGMA table_info(history)").fetchall()}
             if "profile" not in hcols:
