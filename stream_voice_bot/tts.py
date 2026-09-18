@@ -157,7 +157,9 @@ class AudioPlayer:
         audio = np.asarray(audio, dtype=np.float32)
         speed = min(1.5, max(0.5, self.settings.speed))
         if abs(speed - 1.0) > 1e-3 and len(audio) > 100:
-            audio = resample_poly(audio, 100, max(1, int(round(100 / speed)))).astype(np.float32)
+            # speed > 1 shortens playback; speed < 1 lengthens it.
+            numerator = max(1, int(round(100.0 / speed)))
+            audio = resample_poly(audio, numerator, 100).astype(np.float32)
         if source_rate != target_rate and len(audio) > 10:
             audio = resample_poly(audio, target_rate, source_rate).astype(np.float32)
         # Stable, human-friendly volume control: normalize the generated clip
@@ -176,7 +178,10 @@ class AudioPlayer:
         return np.clip(audio, -0.95, 0.95).astype(np.float32)
 
     def play(self, audio: np.ndarray, sample_rate: int, volume_db: float = 0.0) -> str:
-        self.stop_event.clear(); self.skip_event.clear(); self.last_error = None
+        # Do not clear stop/skip here: the worker may receive the command
+        # while Silero is still generating the current item. Clearing here
+        # would make that command disappear before playback starts.
+        self.last_error = None
         try:
             info, target_rate = self._resolve_output_device()
             self.last_sample_rate = target_rate
@@ -212,7 +217,7 @@ class AudioPlayer:
             self._stream = None
             self.stop_event.clear(); self.skip_event.clear()
 
-    def test_tone(self, frequency: float = 880.0, duration: float = 0.35) -> str:
+    def test_tone(self, frequency: float = 880.0, duration: float = 0.35, volume_db: float | None = None) -> str:
         self.stop_event.clear(); self.skip_event.clear(); self.last_error = None
         try:
             _, target_rate = self._resolve_output_device()
@@ -289,10 +294,15 @@ class TTSQueue:
     def stop(self): self.player.stop(); self.on_change()
     def skip(self): self.player.skip(); self.on_change()
     def clear(self):
-        with self.lock: self.pending.clear()
+        removed_ids = []
+        with self.lock:
+            removed_ids = [hid for _, hid, _ in self.pending]
+            self.pending.clear()
         while True:
             try: self.queue.get_nowait(); self.queue.task_done()
             except Empty: break
+        if removed_ids and hasattr(self.db, "mark_pending_history"):
+            self.db.mark_pending_history(removed_ids, status="cleared")
         self.on_change()
     def queued(self):
         with self.lock: return [item.as_dict()|{"history_id":hid,"profile":profile} for item,hid,profile in self.pending]
@@ -300,4 +310,8 @@ class TTSQueue:
         with self.lock:
             cur=None if self.current is None else self.current[0].as_dict()|{"history_id":self.current[1],"profile":self.current[2]}
             return {"current":cur,"queued":self.queued(),"paused":self.player.paused,"last_audio_error":self.player.last_error,"last_audio_device":self.player.last_device,"last_audio_sample_rate":self.player.last_sample_rate}
-    def shutdown(self): self.running=False; self.player.stop()
+    def shutdown(self):
+        self.running=False
+        self.player.stop()
+        if self.thread.is_alive() and threading.current_thread() is not self.thread:
+            self.thread.join(timeout=2.0)
