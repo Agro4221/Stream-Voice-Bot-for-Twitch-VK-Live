@@ -271,11 +271,12 @@ class TTSQueue:
                 raise RuntimeError(
                     f"TTS queue is full (max {self.max_queue_items} pending items)"
                 )
+            self.pending.append((item, history_id, profile))
             try:
                 self.queue.put_nowait((item, history_id, profile))
             except Exception as e:
+                self.pending.pop()
                 raise RuntimeError("TTS queue is full") from e
-            self.pending.append((item, history_id, profile))
         self.on_change(); return history_id
 
     def _worker(self):
