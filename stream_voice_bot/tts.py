@@ -255,7 +255,8 @@ class TTSQueue:
     def __init__(self, model, player, speaker_getter, history_db, max_chars_getter, volume_setter=None):
         self.model=model; self.player=player; self.speaker_getter=speaker_getter
         self.volume_setter=volume_setter or (lambda: 0.0); self.db=history_db; self.max_chars_getter=max_chars_getter
-        self.queue=Queue(); self.pending=[]; self.current=None; self.running=True
+        self.max_queue_items = 200
+        self.queue=Queue(maxsize=self.max_queue_items); self.pending=[]; self.current=None; self.running=True
         self.cancelled_ids=set()
         self.lock=threading.RLock(); self.on_change=lambda: None
         self.thread=threading.Thread(target=self._worker, name="tts-worker", daemon=True); self.thread.start()
@@ -266,8 +267,15 @@ class TTSQueue:
         if history_id is None:
             history_id=self.db.add_history(item.username,item.text,item.source,item.created_at,item.repeat_of,profile)
         with self.lock:
+            if len(self.pending) >= self.max_queue_items:
+                raise RuntimeError(
+                    f"TTS queue is full (max {self.max_queue_items} pending items)"
+                )
+            try:
+                self.queue.put_nowait((item, history_id, profile))
+            except Exception as e:
+                raise RuntimeError("TTS queue is full") from e
             self.pending.append((item, history_id, profile))
-            self.queue.put((item, history_id, profile))
         self.on_change(); return history_id
 
     def _worker(self):
