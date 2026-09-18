@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import * as VKPLModule from "vklive-message-client";
 
-const VKPLMessageClient =
-  VKPLModule.default || VKPLModule.VKPLMessageClient || VKPLModule;
+const VKPLMessageClient = [
+  VKPLModule?.default?.default,
+  VKPLModule?.default,
+  VKPLModule?.VKPLMessageClient,
+  VKPLModule?.default?.VKPLMessageClient,
+  VKPLModule,
+].find((value) => typeof value === 'function');
 
 const input = (process.argv[2] || '').trim();
+const selfTest = input === '--self-test';
 if (!input) {
   console.error('Missing VK Video Live channel slug/url');
   process.exit(2);
@@ -71,6 +77,21 @@ async function main() {
     throw new Error(
       `vklive-message-client export is not a constructor (exports: ${Object.keys(VKPLModule).join(', ')})`
     );
+  }
+
+  if (selfTest) {
+    const probe = new VKPLMessageClient({
+      auth: 'readonly',
+      channels: ['ci-smoke'],
+      debugLog: false,
+    });
+    const socketFieldPresent = Object.prototype.hasOwnProperty.call(probe, 'socket');
+    console.log(JSON.stringify({
+      ok: true,
+      constructor: VKPLMessageClient.name || 'anonymous',
+      socketFieldPresent,
+    }));
+    return;
   }
 
   // Read-only mode is enough for receiving the channel chat.
