@@ -294,17 +294,30 @@ def create_app(root: Path) -> FastAPI:
         if not text:
             return
         message_id = event.get("id")
-        if message_id and not db.claim_event("vk:"+str(message_id)):
+        if message_id and not db.claim_event("vk:" + str(message_id)):
             return
         username = event.get("username", "unknown")
+        created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         db.save_chat_message(
             platform="vkplay", message_id=event.get("id"),
             broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
             broadcaster_login="", user_id="", username=username, text=text,
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            created_at=created_at,
             raw_json=json.dumps(event, ensure_ascii=False),
         )
-        db.add_history(username, text, "vkplay-chat", time.strftime("%Y-%m-%dT%H:%M:%S"), status="received", profile="normal")
+        # VK chat is part of the voice-bot contract: persist the message and
+        # put it through the same normal TTS queue as admin messages.
+        try:
+            item = QueueItem(text, username, "vkplay-chat")
+            queue.enqueue(item, profile="normal")
+        except Exception as e:
+            # Keep the received chat record when the message cannot be queued
+            # (for example, max length/queue validation rejects it).
+            db.add_history(
+                username, text, "vkplay-chat", created_at,
+                status="received", profile="normal",
+            )
+            log.exception("VK chat message could not be queued: %s", e)
 
     def on_vk_status(data: dict):
         vk_status.update(data)
@@ -354,7 +367,7 @@ def create_app(root: Path) -> FastAPI:
         # avoiding coupling Twitch's async client to the TTS worker thread.
         for _ in range(600):
             row = db.get_history(history_id)
-            if row and row["status"] in {"finished", "stopped", "skipped", "audio_error", "error"}:
+            if row and row["status"] in {"finished", "stopped", "skipped", "cleared", "audio_error", "error"}:
                 status = "FULFILLED" if row["status"] == "finished" else "CANCELED"
                 try:
                     await twitch.update_redemption(reward_id, redemption_id, status)
