@@ -1,5 +1,9 @@
 name: Stream Voice Bot CI
 
+concurrency:
+  group: stream-voice-bot-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: ["**"]
