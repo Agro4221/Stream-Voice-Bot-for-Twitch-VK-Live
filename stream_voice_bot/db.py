@@ -102,6 +102,22 @@ class Database:
             else:
                 conn.execute("UPDATE history SET status=?, finished_at=datetime('now'), duration_sec=COALESCE(?,duration_sec) WHERE id=?", (status, duration_sec, row_id))
 
+    def prune_history(self, max_rows=50000):
+        max_rows = max(1000, int(max_rows))
+        with self.lock, self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM history
+                WHERE status NOT IN ('queued', 'playing')
+                  AND id NOT IN (
+                      SELECT id FROM history
+                      ORDER BY id DESC
+                      LIMIT ?
+                  )
+                """,
+                (max_rows,),
+            )
+
     def history(self, limit=100):
         with self.lock, self._connect() as conn:
             rows = conn.execute("SELECT id,username,text,source,created_at,queued_at,started_at,finished_at,duration_sec,status,repeat_of,profile FROM history ORDER BY id DESC LIMIT ?", (max(1,min(limit,500)),)).fetchall()
