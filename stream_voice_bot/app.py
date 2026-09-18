@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
 import platform
@@ -26,6 +27,9 @@ from .translator import TranslationService
 from .twitch import TwitchService
 from .vkplay import VKPlayService
 from .secrets import SecretStore
+
+
+log = logging.getLogger("stream_voice_bot.app")
 
 
 class QueueRequest(BaseModel):
