@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 
@@ -114,6 +115,37 @@ class Database:
     def delete_setting(self, key):
         with self.lock, self._connect() as conn:
             conn.execute("DELETE FROM settings WHERE key=?", (key,))
+
+    def claim_event(self, message_id, ttl_seconds=7 * 24 * 60 * 60):
+        """Atomically claim an EventSub/message id and suppress redelivery duplicates."""
+        key = str(message_id or "").strip()
+        if not key:
+            return True
+        now = time.time()
+        cutoff = now - max(60, int(ttl_seconds))
+        with self.lock, self._connect() as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO event_dedupe(message_id, seen_at) VALUES(?, ?)",
+                (key, now),
+            )
+            conn.execute("DELETE FROM event_dedupe WHERE seen_at < ?", (cutoff,))
+            return cur.rowcount == 1
+
+    def mark_pending_history(self, row_ids, status="cleared"):
+        """Mark still-queued history rows as terminal after queue.clear()."""
+        ids = [int(x) for x in row_ids]
+        if not ids:
+            return 0
+        if status not in {"cleared", "skipped", "canceled"}:
+            raise ValueError("Unsupported pending-history status")
+        placeholders = ",".join("?" for _ in ids)
+        with self.lock, self._connect() as conn:
+            cur = conn.execute(
+                f"UPDATE history SET status=?, finished_at=datetime('now') "
+                f"WHERE id IN ({placeholders}) AND status='queued'",
+                (status, *ids),
+            )
+            return cur.rowcount
 
     def save_chat_message(self, platform, message_id, broadcaster_user_id, broadcaster_login, user_id, username, text, created_at, raw_json=""):
         with self.lock, self._connect() as conn:
