@@ -17,6 +17,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("Do not clear stop/skip here", src)
         self.assertIn("active = self.current is not None", src)
         self.assertIn("if active:", src)
+        self.assertIn("self.cancelled_ids.update(removed_ids)", src)
 
     def test_twitch_dcf_and_reconnect_contract(self):
         src = self.read("stream_voice_bot/twitch.py")
@@ -24,6 +25,13 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("await client.post(OAUTH_TOKEN, data=params)", src)
         self.assertIn("await self._open_eventsub_socket(reconnect_url)", src)
         self.assertIn("await old_ws.close()", src)
+
+    def test_vk_watchdog_contract(self):
+        src = self.read("stream_voice_bot/vk_bridge/bridge.js")
+        self.assertIn("client?.socket", src)
+        self.assertIn("lastPongAt", src)
+        self.assertIn("--self-test", src)
+        self.assertIn("ctx?.message?.createdAt", src)
 
     def test_app_and_db_stability_contract(self):
         app = self.read("stream_voice_bot/app.py")
