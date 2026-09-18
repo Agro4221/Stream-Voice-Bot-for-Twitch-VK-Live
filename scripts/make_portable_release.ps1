@@ -6,6 +6,8 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
+$Version = (Get-Content -Raw (Join-Path $ProjectRoot "VERSION")).Trim()
+
 $rootModel = Join-Path $ProjectRoot "v5_ru.pt"
 $model = Join-Path $ProjectRoot "models\v5_ru.pt"
 if (-not (Test-Path $model) -and (Test-Path $rootModel)) { Copy-Item $rootModel $model -Force }
@@ -21,7 +23,7 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 try {
   $items = @(
     "README.md", "README_RU.md", "SECURITY.md", "START_HERE_RU.md", "LICENSE", "THIRD_PARTY_NOTICES.md", ".gitignore", ".gitattributes",
-    "requirements.txt", "start_bot.bat", "start_bot_minimized.bat", "run_windows.ps1",
+    "requirements.txt", "VERSION", "start_bot.bat", "start_bot_minimized.bat", "run_windows.ps1",
     "scripts", "stream_voice_bot", "models"
   )
   foreach ($item in $items) {
@@ -32,7 +34,7 @@ try {
   Get-ChildItem $stage -Recurse -Force -Directory | Where-Object { $_.Name -in @(".venv", "node_modules", "__pycache__", ".git") } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
   Get-ChildItem $stage -Recurse -Force -File | Where-Object { $_.Extension -in @(".sqlite3", ".wav", ".log") } | Remove-Item -Force -ErrorAction SilentlyContinue
 
-  $zip = Join-Path $out "StreamVoiceBot_1.0.0_portable.zip"
+  $zip = Join-Path $out ("StreamVoiceBot_{0}_portable.zip" -f $Version)
   if (Test-Path $zip) { Remove-Item $zip -Force }
   Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal
   Write-Host "Portable release created: $zip" -ForegroundColor Green
