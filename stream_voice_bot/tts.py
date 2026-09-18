@@ -264,18 +264,32 @@ class TTSQueue:
     def enqueue(self, item: QueueItem, history_id: int|None=None, profile="normal") -> int:
         if not item.text.strip(): raise ValueError("Text is empty")
         if len(item.text)>self.max_chars_getter(): raise ValueError(f"Text is too long (max {self.max_chars_getter()} chars)")
-        if history_id is None:
-            history_id=self.db.add_history(item.username,item.text,item.source,item.created_at,item.repeat_of,profile)
+
+        created_history = history_id is None
         with self.lock:
             if len(self.pending) >= self.max_queue_items:
                 raise RuntimeError(
                     f"TTS queue is full (max {self.max_queue_items} pending items)"
+                )
+            if created_history:
+                history_id = self.db.add_history(
+                    item.username,
+                    item.text,
+                    item.source,
+                    item.created_at,
+                    item.repeat_of,
+                    profile,
                 )
             self.pending.append((item, history_id, profile))
             try:
                 self.queue.put_nowait((item, history_id, profile))
             except Exception as e:
                 self.pending.pop()
+                if created_history:
+                    try:
+                        self.db.set_history_status(history_id, "error")
+                    except Exception:
+                        pass
                 raise RuntimeError("TTS queue is full") from e
         self.on_change(); return history_id
 
