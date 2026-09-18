@@ -37,7 +37,10 @@ jobs:
           (client_secret|access_token|refresh_token|service_key|secure_key|password)[[:space:]]*[:=][[:space:]]*['"][A-Za-z0-9._:/+=-]{12,}['"]
           '@
           $bad = git grep -n -I -E $pattern -- ':!*.lock' ':!SECURITY.md' ':!.gitignore'
-          if ($LASTEXITCODE -eq 0 -and $bad) { Write-Host $bad; exit 1 }
+          $grepExit = $LASTEXITCODE
+          if ($grepExit -gt 1) { exit $grepExit }
+          if ($bad) { Write-Host $bad; exit 1 }
+          exit 0
   node:
     runs-on: windows-latest
     defaults:
