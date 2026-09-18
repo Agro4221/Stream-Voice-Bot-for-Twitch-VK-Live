@@ -54,6 +54,7 @@ function emitChat(ctx) {
     ctx?.message?.rawId ??
     createHash('sha256')
       .update(JSON.stringify({
+        createdAt: ctx?.message?.createdAt ?? null,
         message: ctx?.message ?? null,
         user: {
           id: ctx?.user?.id ?? null,
