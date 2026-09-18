@@ -106,6 +106,7 @@ class TwitchService:
             while time.time() < deadline:
                 r = await client.post(OAUTH_TOKEN, data={
                     "client_id": self.client_id(),
+                    "scopes": " ".join(self.REQUIRED_SCOPES),
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 })
@@ -185,7 +186,7 @@ class TwitchService:
         if self.client_secret():
             params["client_secret"] = self.client_secret()
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(OAUTH_TOKEN, params=params)
+            r = await client.post(OAUTH_TOKEN, data=params)
             r.raise_for_status()
             data = r.json()
 
@@ -394,20 +395,36 @@ class TwitchService:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
 
-    async def _run_one(self):
-        async with websockets.connect(
-            EVENTSUB_WS,
+    async def _open_eventsub_socket(self, url: str):
+        ws = await websockets.connect(
+            url,
             ping_interval=20,
             ping_timeout=20,
             max_size=4 * 1024 * 1024,
-        ) as ws:
-            self.ws = ws
+        )
+        try:
             first = json.loads(await ws.recv())
             metadata = first.get("metadata", {})
             payload = first.get("payload", {})
             if metadata.get("message_type") != "session_welcome":
-                raise RuntimeError(f"Expected session_welcome, got {metadata.get('message_type')}")
-            self.session_id = payload["session"]["id"]
+                await ws.close()
+                raise RuntimeError(
+                    f"Expected session_welcome, got {metadata.get('message_type')}"
+                )
+            return ws, payload["session"]
+        except Exception:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+            raise
+
+    async def _run_one(self):
+        ws = None
+        try:
+            ws, session = await self._open_eventsub_socket(EVENTSUB_WS)
+            self.ws = ws
+            self.session_id = session["id"]
             self.connected = True
             self.on_status({
                 "connected": True,
@@ -418,14 +435,19 @@ class TwitchService:
 
             await self._subscribe()
 
-            async for raw in ws:
+            while self.running:
+                raw = await ws.recv()
                 msg = json.loads(raw)
                 meta = msg.get("metadata", {})
                 msg_type = meta.get("message_type")
 
                 if msg_type == "notification":
-                    event_type = msg.get("metadata", {}).get("subscription_type")
+                    event_type = meta.get("subscription_type")
                     event = msg.get("payload", {}).get("event", {})
+                    # Keep Twitch's envelope message id so the app can dedupe
+                    # a redelivery even when the payload itself has no id.
+                    if meta.get("message_id"):
+                        event = {**event, "_eventsub_message_id": meta["message_id"]}
                     if event_type == "channel.chat.message":
                         try:
                             self.on_chat(event)
@@ -438,15 +460,43 @@ class TwitchService:
                             log.exception("Redemption event handler failed")
 
                 elif msg_type == "session_reconnect":
-                    reconnect_url = msg.get("payload", {}).get("session", {}).get("reconnect_url")
+                    reconnect_url = (
+                        msg.get("payload", {})
+                        .get("session", {})
+                        .get("reconnect_url")
+                    )
+                    if not reconnect_url:
+                        raise RuntimeError("Twitch sent session_reconnect without reconnect_url")
+
                     self.on_status({
                         "connected": True,
-                        "message": "Twitch requested reconnect",
+                        "message": "Twitch reconnecting EventSub session…",
                         "reconnect_url": reconnect_url,
                     })
-                    return
+
+                    # Twitch requires the new socket to receive Welcome before
+                    # the old socket is closed. The reconnect URL carries the
+                    # old subscriptions automatically, so do not resubscribe.
+                    new_ws, new_session = await self._open_eventsub_socket(reconnect_url)
+                    old_ws = ws
+                    ws = new_ws
+                    self.ws = new_ws
+                    self.session_id = new_session["id"]
+                    self.connected = True
+                    self.on_status({
+                        "connected": True,
+                        "message": "EventSub WebSocket reconnected",
+                        "session_id": self.session_id,
+                        "login": self.identity.login if self.identity else "",
+                    })
+                    try:
+                        await old_ws.close()
+                    except Exception:
+                        pass
+
                 elif msg_type == "session_keepalive":
                     pass
+
                 elif msg_type == "revocation":
                     self.connected = False
                     self.on_status({
@@ -456,5 +506,14 @@ class TwitchService:
                     })
                     return
 
-        self.connected = False
-        self.on_status({"connected": False, "message": "EventSub WebSocket closed"})
+        finally:
+            self.connected = False
+            if ws is not None:
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+            if self.ws is ws:
+                self.ws = None
+            self.session_id = None
+            self.on_status({"connected": False, "message": "EventSub WebSocket closed"})
