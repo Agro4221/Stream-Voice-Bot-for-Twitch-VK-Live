@@ -81,4 +81,4 @@ jobs:
         run: node --check bridge.js
       - name: Package export smoke
         run: |
-          node --input-type=module -e "import * as m from 'vklive-message-client'; const C=m.default || m.VKPLMessageClient || m; if (typeof C !== 'function') process.exit(1); const c=new C({auth:'readonly',channels:['ci-smoke']}); if (!('socket' in c)) process.exit(2); console.log('vklive-message-client export smoke: OK')"
+          node bridge.js --self-test
