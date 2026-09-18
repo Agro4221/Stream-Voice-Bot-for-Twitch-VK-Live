@@ -730,7 +730,7 @@ def create_app(root: Path) -> FastAPI:
                     twitch_status["message"] = f"Device Flow: {type(e).__name__}: {e}"
                     twitch_status["device_pending"] = False
 
-                device_task = asyncio.create_task(run_device_flow(), name="twitch-device-flow")
+            device_task = asyncio.create_task(run_device_flow(), name="twitch-device-flow")
             return payload
         except Exception as e:
             raise HTTPException(400, str(e))
