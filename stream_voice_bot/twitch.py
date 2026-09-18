@@ -435,8 +435,20 @@ class TwitchService:
 
             await self._subscribe()
 
+            keepalive_timeout = max(
+                10,
+                int(session.get("keepalive_timeout_seconds") or 10),
+            )
             while self.running:
-                raw = await ws.recv()
+                try:
+                    raw = await asyncio.wait_for(
+                        ws.recv(),
+                        timeout=keepalive_timeout * 2,
+                    )
+                except asyncio.TimeoutError as e:
+                    raise RuntimeError(
+                        f"Twitch EventSub keepalive timeout ({keepalive_timeout}s)"
+                    ) from e
                 msg = json.loads(raw)
                 meta = msg.get("metadata", {})
                 msg_type = meta.get("message_type")
