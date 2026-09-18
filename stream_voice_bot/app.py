@@ -417,6 +417,10 @@ def create_app(root: Path) -> FastAPI:
         nonlocal device_task
         if device_task and not device_task.done():
             device_task.cancel()
+            try:
+                await device_task
+            except asyncio.CancelledError:
+                pass
         device_task = None
         await twitch.stop()
         await vkplay.stop()
