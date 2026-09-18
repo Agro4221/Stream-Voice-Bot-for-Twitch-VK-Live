@@ -291,8 +291,20 @@ class TTSQueue:
         fn=getattr(self,"_profile_volume_getter",None); return float(fn(profile)) if fn else float(self.volume_setter())
     def pause(self): self.player.pause(); self.on_change()
     def resume(self): self.player.resume(); self.on_change()
-    def stop(self): self.player.stop(); self.on_change()
-    def skip(self): self.player.skip(); self.on_change()
+    def stop(self):
+        with self.lock:
+            active = self.current is not None
+        if active:
+            self.player.stop()
+        self.on_change()
+
+    def skip(self):
+        with self.lock:
+            active = self.current is not None
+        if active:
+            self.player.skip()
+        self.on_change()
+
     def clear(self):
         removed_ids = []
         with self.lock:
