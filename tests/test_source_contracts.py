@@ -15,6 +15,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("numerator = max(1, int(round(100.0 / speed)))", src)
         self.assertIn("resample_poly(audio, numerator, 100)", src)
         self.assertIn("Do not clear stop/skip here", src)
+        self.assertIn("active = self.current is not None", src)
+        self.assertIn("if active:", src)
 
     def test_twitch_dcf_and_reconnect_contract(self):
         src = self.read("stream_voice_bot/twitch.py")
