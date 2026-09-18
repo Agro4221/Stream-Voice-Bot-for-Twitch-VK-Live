@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -124,25 +126,34 @@ def main() -> None:
         app = app_module.create_app(temp_root)
         assert app.version == version
         assert app.title == "Stream Voice Bot"
-        with TestClient(app) as client:
-            state = client.get("/api/state")
-            assert state.status_code == 200, state.text
-            payload = state.json()
-            assert payload["app"]["version"] == version
-            assert payload["queue"]["current"] is None
 
-            normalized_response = client.post(
-                "/api/tts/normalize",
-                json={"text": "Привет 25% и 12:30!"},
-            )
-            assert normalized_response.status_code == 200
-            assert "процентов" in normalized_response.json()["normalized"]
+        async def exercise_http():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                state = await client.get("/api/state")
+                assert state.status_code == 200, state.text
+                payload = state.json()
+                assert payload["app"]["version"] == version
+                assert payload["queue"]["current"] is None
 
-            invalid_stt = client.post(
-                "/api/stt/config",
-                json={"chunk_seconds": 1.0, "overlap_seconds": 1.0},
-            )
-            assert invalid_stt.status_code == 400, invalid_stt.text
+                normalized_response = await client.post(
+                    "/api/tts/normalize",
+                    json={"text": "Привет 25% и 12:30!"},
+                )
+                assert normalized_response.status_code == 200
+                assert "процентов" in normalized_response.json()["normalized"]
+
+                invalid_stt = await client.post(
+                    "/api/stt/config",
+                    json={"chunk_seconds": 1.0, "overlap_seconds": 1.0},
+                )
+                assert invalid_stt.status_code == 400, invalid_stt.text
+
+        asyncio.run(exercise_http())
+        app.state.tts_queue.shutdown()
 
     # Deterministic queue clear race: the second item must be cleared while
     # the first item is still inside model.generate().
