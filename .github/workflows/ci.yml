@@ -1,0 +1,102 @@
+name: Stream Voice Bot CI
+
+concurrency:
+  group: stream-voice-bot-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Syntax check
+        shell: pwsh
+        run: |
+          python -m compileall -q stream_voice_bot
+      - name: Core import check
+        shell: pwsh
+        run: |
+          python -c "import stream_voice_bot.db; import stream_voice_bot.models"
+      - name: Stability tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Dependency manifest check
+        shell: pwsh
+        run: |
+          python -c "from pathlib import Path; assert Path('requirements.txt').exists()"
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          $files = @("scripts/install_windows.ps1", "scripts/make_portable_release.ps1", "scripts/publish_github.ps1")
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { continue }
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Host
+              exit 1
+            }
+          }
+      - name: Secret scan
+        shell: pwsh
+        run: |
+          $pattern = @'
+          (client_secret|access_token|refresh_token|service_key|secure_key|password)[[:space:]]*[:=][[:space:]]*['"][A-Za-z0-9._:/+=-]{12,}['"]
+          '@
+          $bad = git grep -n -I -E $pattern -- ':!*.lock' ':!SECURITY.md' ':!.gitignore'
+          $grepExit = $LASTEXITCODE
+          if ($grepExit -gt 1) { exit $grepExit }
+          if ($bad) { Write-Host $bad; exit 1 }
+          exit 0
+  runtime-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install CPU PyTorch
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Full dependency import + runtime smoke
+        shell: pwsh
+        run: |
+          python scripts/runtime_smoke.py
+
+  node:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: stream_voice_bot/vk_bridge
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: stream_voice_bot/vk_bridge/package-lock.json
+      - name: Install bridge
+        run: npm ci
+      - name: Syntax check bridge
+        run: node --check bridge.js
+      - name: Package export smoke
+        run: |
+          node bridge.js --self-test

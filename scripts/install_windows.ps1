@@ -13,6 +13,7 @@ $LocalPythonRoot = Join-Path $RuntimeRoot "python"
 $LocalNodeRoot = Join-Path $RuntimeRoot "node"
 $DownloadRoot = Join-Path $RuntimeRoot "downloads"
 $CacheRoot = Join-Path $ProjectRoot ".cache"
+$Version = (Get-Content -Raw (Join-Path $ProjectRoot "VERSION")).Trim()
 $PipCache = Join-Path $CacheRoot "pip"
 $HfCache = Join-Path $CacheRoot "huggingface"
 
@@ -21,7 +22,7 @@ $env:PIP_CACHE_DIR = $PipCache
 $env:HF_HOME = $HfCache
 $env:HUGGINGFACE_HUB_CACHE = Join-Path $HfCache "hub"
 
-Write-Host "=== Stream Voice Bot 1.0.3 installer ===" -ForegroundColor Cyan
+Write-Host "=== Stream Voice Bot $Version installer ===" -ForegroundColor Cyan
 Write-Host "Project root: $ProjectRoot"
 Write-Host "Runtime/cache root: $RuntimeRoot"
 

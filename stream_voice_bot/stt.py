@@ -52,7 +52,9 @@ class STTService:
         self.start_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.lock = threading.RLock()
-        self.audio_q: deque[np.ndarray] = deque()
+        # ~20 seconds of 1600-frame callback blocks at the current default.
+        # Oldest audio is dropped instead of allowing an unbounded memory backlog.
+        self.audio_q: deque[np.ndarray] = deque(maxlen=200)
         self.last_text = ""
         self.model_loading = False
         self.message = "STT остановлен"
@@ -87,6 +89,10 @@ class STTService:
         }
 
     def save_config(self, **kwargs):
+        next_chunk = kwargs.get("chunk_seconds", self.config.chunk_seconds)
+        next_overlap = kwargs.get("overlap_seconds", self.config.overlap_seconds)
+        if float(next_overlap) >= float(next_chunk):
+            raise ValueError("overlap_seconds must be smaller than chunk_seconds")
         allowed = {
             "model_name": "stt_model",
             "language": "stt_language",
@@ -164,6 +170,7 @@ class STTService:
                 self._emit(model_loading=True, message="STT уже запускается…")
                 return
             self.stop_event.clear()
+            self.audio_q.clear()
             self.start_thread = threading.Thread(target=self._start_worker, name="stt-start", daemon=True)
             self.start_thread.start()
         self._emit(running=False, model_loading=True, message=f"Запуск STT: загрузка {self.config.model_name}…", last_error="")

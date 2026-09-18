@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
+import logging
 import math
 import re
 import platform
@@ -26,6 +28,9 @@ from .translator import TranslationService
 from .twitch import TwitchService
 from .vkplay import VKPlayService
 from .secrets import SecretStore
+
+
+log = logging.getLogger("stream_voice_bot.app")
 
 
 class QueueRequest(BaseModel):
@@ -137,13 +142,23 @@ def install_silero_model(root: Path, force: bool = False) -> Path:
     return target.resolve()
 
 
+def _read_app_version(root: Path) -> str:
+    try:
+        value = (root / "VERSION").read_text(encoding="utf-8").strip()
+        return value or "0.0.0-dev"
+    except OSError:
+        return "0.0.0-dev"
+
+
 def create_app(root: Path) -> FastAPI:
-    app = FastAPI(title="Stream Voice Bot", version="1.0.5")
+    app_version = _read_app_version(root)
+    app = FastAPI(title="Stream Voice Bot", version=app_version)
     data_dir = root / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
 
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
+    db.prune_history(max_rows=50000)
 
     normal_speaker = db.get_setting("normal_speaker", "xenia")
     normal_volume = float(db.get_setting("normal_volume", "0.0"))
@@ -262,6 +277,10 @@ def create_app(root: Path) -> FastAPI:
         text = (event.get("message", {}) or {}).get("text", "").strip()
         if not text:
             return
+        message_id = event.get("message_id")
+        dedupe_id = event.get("_eventsub_message_id") or message_id
+        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
+            return
         username = event.get("chatter_user_name", "unknown")
         db.save_chat_message(
             platform="twitch",
@@ -280,15 +299,31 @@ def create_app(root: Path) -> FastAPI:
         text = (event.get("text") or "").strip()
         if not text:
             return
+        message_id = event.get("id")
+        if message_id and not db.claim_event("vk:" + str(message_id)):
+            return
         username = event.get("username", "unknown")
+        created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         db.save_chat_message(
             platform="vkplay", message_id=event.get("id"),
             broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
             broadcaster_login="", user_id="", username=username, text=text,
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            created_at=created_at,
             raw_json=json.dumps(event, ensure_ascii=False),
         )
-        db.add_history(username, text, "vkplay-chat", time.strftime("%Y-%m-%dT%H:%M:%S"), status="received", profile="normal")
+        # VK chat is part of the voice-bot contract: persist the message and
+        # put it through the same normal TTS queue as admin messages.
+        try:
+            item = QueueItem(text, username, "vkplay-chat")
+            queue.enqueue(item, profile="normal")
+        except Exception as e:
+            # Keep the received chat record when the message cannot be queued
+            # (for example, max length/queue validation rejects it).
+            db.add_history(
+                username, text, "vkplay-chat", created_at,
+                status="received", profile="normal",
+            )
+            log.exception("VK chat message could not be queued: %s", e)
 
     def on_vk_status(data: dict):
         vk_status.update(data)
@@ -297,6 +332,8 @@ def create_app(root: Path) -> FastAPI:
         # Only process new/unfulfilled redemptions.
         if (event.get("status") or "").lower() not in {"", "unfulfilled"}:
             return
+        redemption_id = event.get("id", "")
+        eventsub_id = event.get("_eventsub_message_id")
         reward = event.get("reward", {}) or {}
         reward_id = reward.get("id", "")
         rule = db.get_reward(reward_id)
@@ -306,6 +343,9 @@ def create_app(root: Path) -> FastAPI:
 
         if not rule or not int(rule["enabled"]):
             # Intentionally leave unconfigured redemptions untouched.
+            return
+        dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
+        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
         if not user_input:
             # When input is configured as required, an empty event is invalid;
@@ -324,21 +364,41 @@ def create_app(root: Path) -> FastAPI:
                 asyncio.create_task(
                     fulfill_after(history_id, reward_id, redemption_id)
                 )
-        except Exception:
-            # The redemption remains pending in Twitch if enqueue failed.
-            pass
+        except Exception as e:
+            # Do not leave a redemption permanently pending when the local
+            # queue rejects it (for example because the bounded queue is full).
+            history_id = db.add_history(
+                username,
+                user_input,
+                "twitch-channel-points",
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                status="error",
+                profile=rule["profile"],
+            )
+            log.exception("Twitch redemption could not be queued: %s", e)
+            asyncio.create_task(
+                fulfill_after(history_id, reward_id, redemption_id)
+            )
 
     async def fulfill_after(history_id: int, reward_id: str, redemption_id: str):
         # Fulfill once the TTS item reaches a terminal state. We poll SQLite,
         # avoiding coupling Twitch's async client to the TTS worker thread.
         for _ in range(600):
             row = db.get_history(history_id)
-            if row and row["status"] in {"finished", "stopped", "skipped", "audio_error", "error"}:
+            if row and row["status"] in {"finished", "stopped", "skipped", "cleared", "audio_error", "error"}:
                 status = "FULFILLED" if row["status"] == "finished" else "CANCELED"
-                try:
-                    await twitch.update_redemption(reward_id, redemption_id, status)
-                except Exception:
-                    pass
+                for attempt in range(3):
+                    try:
+                        await twitch.update_redemption(reward_id, redemption_id, status)
+                        return
+                    except Exception as e:
+                        if attempt == 2:
+                            log.exception(
+                                "Twitch redemption update failed after retries: %s",
+                                e,
+                            )
+                        else:
+                            await asyncio.sleep(1.5 * (attempt + 1))
                 return
             await asyncio.sleep(0.5)
 
@@ -379,6 +439,10 @@ def create_app(root: Path) -> FastAPI:
         nonlocal device_task
         if device_task and not device_task.done():
             device_task.cancel()
+            try:
+                await device_task
+            except asyncio.CancelledError:
+                pass
         device_task = None
         await twitch.stop()
         await vkplay.stop()
@@ -422,7 +486,7 @@ def create_app(root: Path) -> FastAPI:
             pass
         stt_status = getattr(app.state, "stt_status", {})
         return {
-            "app": {"name": "Stream Voice Bot", "version": "1.0.4"},
+            "app": {"name": "Stream Voice Bot", "version": app_version},
             "model": {
                 "path": "models/v5_ru.pt",
                 "exists": model_exists,
@@ -695,14 +759,21 @@ def create_app(root: Path) -> FastAPI:
             payload = await twitch.start_device_flow()
             if device_task and not device_task.done():
                 device_task.cancel()
-            device_task = asyncio.create_task(
-                twitch.finish_device_flow(
-                    payload.get("device_code", ""),
-                    int(payload.get("interval", 5)),
-                    int(payload.get("expires_in", 1800)),
-                ),
-                name="twitch-device-flow",
-            )
+            async def run_device_flow():
+                try:
+                    await twitch.finish_device_flow(
+                        payload.get("device_code", ""),
+                        int(payload.get("interval", 5)),
+                        int(payload.get("expires_in", 1800)),
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    twitch_status["connected"] = False
+                    twitch_status["message"] = f"Device Flow: {type(e).__name__}: {e}"
+                    twitch_status["device_pending"] = False
+
+            device_task = asyncio.create_task(run_device_flow(), name="twitch-device-flow")
             return payload
         except Exception as e:
             raise HTTPException(400, str(e))
@@ -726,7 +797,8 @@ def create_app(root: Path) -> FastAPI:
     @app.get("/auth/twitch/callback", response_class=HTMLResponse)
     async def twitch_callback(code: str | None = None, state: str | None = None, error: str | None = None):
         if error:
-            return HTMLResponse(f"<h2>Twitch authorization failed</h2><p>{error}</p>", status_code=400)
+            safe_error = re.sub(r"[^A-Za-z0-9 _.-]", "", error)[:200]
+            return HTMLResponse(f"<h2>Twitch authorization failed</h2><p>{safe_error}</p>", status_code=400)
         if not code or not state:
             return HTMLResponse("<h2>Missing Twitch OAuth code/state.</h2>", status_code=400)
         try:
@@ -736,8 +808,9 @@ def create_app(root: Path) -> FastAPI:
                 "<h2>Готово.</h2><p>Twitch подключён. Можно закрыть это окно и вернуться в админку.</p>"
             )
         except Exception as e:
+            safe_error = html.escape(str(e), quote=True)[:500]
             return HTMLResponse(
-                f"<h2>Ошибка Twitch</h2><pre>{str(e)}</pre>",
+                f"<h2>Ошибка Twitch</h2><pre>{safe_error}</pre>",
                 status_code=500,
             )
 
@@ -903,8 +976,17 @@ def create_app(root: Path) -> FastAPI:
     # ---- STT ----
     @app.post("/api/stt/config")
     async def stt_config(req: STTConfigRequest):
+        current_chunk = stt.config.chunk_seconds
+        current_overlap = stt.config.overlap_seconds
+        chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
+        overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
+        if overlap >= chunk:
+            raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
-        stt.save_config(**kwargs)
+        try:
+            stt.save_config(**kwargs)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
         return {"ok": True, "state": stt.state()}
 
     @app.post("/api/stt/start")
