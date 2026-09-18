@@ -104,7 +104,7 @@ async function main() {
   let nonOpenSince = null;
   setInterval(() => {
     try {
-      const socket = client?.socketManager?.socket;
+      const socket = client?.socket;
       if (!socket) return;
 
       if (socket !== trackedSocket) {
