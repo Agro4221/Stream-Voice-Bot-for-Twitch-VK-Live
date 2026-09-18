@@ -362,9 +362,21 @@ def create_app(root: Path) -> FastAPI:
                 asyncio.create_task(
                     fulfill_after(history_id, reward_id, redemption_id)
                 )
-        except Exception:
-            # The redemption remains pending in Twitch if enqueue failed.
-            pass
+        except Exception as e:
+            # Do not leave a redemption permanently pending when the local
+            # queue rejects it (for example because the bounded queue is full).
+            history_id = db.add_history(
+                username,
+                user_input,
+                "twitch-channel-points",
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                status="error",
+                profile=rule["profile"],
+            )
+            log.exception("Twitch redemption could not be queued: %s", e)
+            asyncio.create_task(
+                fulfill_after(history_id, reward_id, redemption_id)
+            )
 
     async def fulfill_after(history_id: int, reward_id: str, redemption_id: str):
         # Fulfill once the TTS item reaches a terminal state. We poll SQLite,
@@ -373,10 +385,18 @@ def create_app(root: Path) -> FastAPI:
             row = db.get_history(history_id)
             if row and row["status"] in {"finished", "stopped", "skipped", "cleared", "audio_error", "error"}:
                 status = "FULFILLED" if row["status"] == "finished" else "CANCELED"
-                try:
-                    await twitch.update_redemption(reward_id, redemption_id, status)
-                except Exception:
-                    pass
+                for attempt in range(3):
+                    try:
+                        await twitch.update_redemption(reward_id, redemption_id, status)
+                        return
+                    except Exception as e:
+                        if attempt == 2:
+                            log.exception(
+                                "Twitch redemption update failed after retries: %s",
+                                e,
+                            )
+                        else:
+                            await asyncio.sleep(1.5 * (attempt + 1))
                 return
             await asyncio.sleep(0.5)
 
