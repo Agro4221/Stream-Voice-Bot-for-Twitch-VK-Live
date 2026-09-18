@@ -23,6 +23,8 @@ def main() -> None:
     import stream_voice_bot.twitch as twitch_module
     import stream_voice_bot.tts as tts_module
     import stream_voice_bot.vkplay as vkplay_module
+    from stream_voice_bot.models import QueueItem
+    from fastapi.testclient import TestClient
 
     assert app_module._read_app_version(ROOT) == version
     assert twitch_module.TwitchService.REQUIRED_SCOPES == [
@@ -115,19 +117,129 @@ def main() -> None:
         finally:
             pass
 
-    # Full application construction: imports and dependency wiring must work.
+    # Full application construction plus real HTTP routes.
     with tempfile.TemporaryDirectory() as tmp:
         temp_root = Path(tmp)
         (temp_root / "VERSION").write_text(version + "\n", encoding="utf-8")
         app = app_module.create_app(temp_root)
-        try:
-            assert app.version == version
-            assert app.title == "Stream Voice Bot"
-        finally:
-            app.state.tts_queue.shutdown()
+        assert app.version == version
+        assert app.title == "Stream Voice Bot"
+        with TestClient(app) as client:
+            state = client.get("/api/state")
+            assert state.status_code == 200, state.text
+            payload = state.json()
+            assert payload["app"]["version"] == version
+            assert payload["queue"]["current"] is None
 
-    # Global app created at import time owns a daemon TTS worker too.
-    app_module.app.state.tts_queue.shutdown()
+            normalized_response = client.post(
+                "/api/tts/normalize",
+                json={"text": "Привет 25% и 12:30!"},
+            )
+            assert normalized_response.status_code == 200
+            assert "процентов" in normalized_response.json()["normalized"]
+
+            invalid_stt = client.post(
+                "/api/stt/config",
+                json={"chunk_seconds": 1.0, "overlap_seconds": 1.0},
+            )
+            assert invalid_stt.status_code == 400, invalid_stt.text
+
+    # Deterministic queue clear race: the second item must be cleared while
+    # the first item is still inside model.generate().
+    class FakeDB:
+        def __init__(self):
+            self.next_id = 1
+            self.rows = {}
+            self.lock = threading.Lock()
+
+        def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
+            with self.lock:
+                hid = self.next_id
+                self.next_id += 1
+                self.rows[hid] = {"id": hid, "status": status}
+                return hid
+
+        def set_history_status(self, hid, status, duration_sec=None):
+            with self.lock:
+                self.rows[hid]["status"] = status
+
+        def get_history(self, hid):
+            with self.lock:
+                return dict(self.rows[hid])
+
+        def mark_pending_history(self, ids, status="cleared"):
+            with self.lock:
+                changed = 0
+                for hid in ids:
+                    if self.rows.get(hid, {}).get("status") == "queued":
+                        self.rows[hid]["status"] = status
+                        changed += 1
+                return changed
+
+    class BlockingModel:
+        def __init__(self):
+            self.started = threading.Event()
+            self.release = threading.Event()
+
+        def generate(self, *_args, **_kwargs):
+            self.started.set()
+            if not self.release.wait(5):
+                raise RuntimeError("queue race test timed out")
+            return np.zeros(480, dtype=np.float32)
+
+    class FakePlayer:
+        def __init__(self):
+            self.last_error = None
+            self.last_device = "fake"
+            self.last_sample_rate = 48000
+            self._paused = False
+            self._stopped = False
+
+        @property
+        def paused(self):
+            return self._paused
+
+        def play(self, *_args, **_kwargs):
+            return "stopped" if self._stopped else "finished"
+
+        def pause(self):
+            self._paused = True
+
+        def resume(self):
+            self._paused = False
+
+        def stop(self):
+            self._stopped = True
+            self._paused = False
+
+        def skip(self):
+            self._stopped = True
+            self._paused = False
+
+    fake_db = FakeDB()
+    blocking_model = BlockingModel()
+    fake_player = FakePlayer()
+    queue = tts_module.TTSQueue(
+        model=blocking_model,
+        player=fake_player,
+        speaker_getter=lambda: "xenia",
+        history_db=fake_db,
+        max_chars_getter=lambda: 1000,
+        volume_setter=lambda: 0.0,
+    )
+    try:
+        first_id = queue.enqueue(QueueItem("first", "u1", "test"))
+        assert blocking_model.started.wait(5)
+        second_id = queue.enqueue(QueueItem("second", "u2", "test"))
+        queue.clear()
+        assert fake_db.get_history(second_id)["status"] == "cleared"
+        blocking_model.release.set()
+        deadline = time.time() + 5
+        while time.time() < deadline and fake_db.get_history(first_id)["status"] not in {"finished", "error"}:
+            time.sleep(0.05)
+        assert fake_db.get_history(first_id)["status"] == "finished"
+    finally:
+        queue.shutdown()
 
     # Basic normalization should remain usable under the installed dependency set.
     normalized = normalize_module.normalize_for_tts("Привет 25% и 12:30!")
