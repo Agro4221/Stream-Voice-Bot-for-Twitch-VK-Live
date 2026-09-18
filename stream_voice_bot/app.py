@@ -262,6 +262,9 @@ def create_app(root: Path) -> FastAPI:
         text = (event.get("message", {}) or {}).get("text", "").strip()
         if not text:
             return
+        message_id = event.get("message_id")
+        if message_id and not db.claim_event(message_id):
+            return
         username = event.get("chatter_user_name", "unknown")
         db.save_chat_message(
             platform="twitch",
@@ -279,6 +282,9 @@ def create_app(root: Path) -> FastAPI:
     def on_vk_chat(event: dict):
         text = (event.get("text") or "").strip()
         if not text:
+            return
+        message_id = event.get("id")
+        if message_id and not db.claim_event("vk:"+str(message_id)):
             return
         username = event.get("username", "unknown")
         db.save_chat_message(
