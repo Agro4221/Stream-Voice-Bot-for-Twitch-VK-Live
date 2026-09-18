@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .venv/
+.runtime/
+.cache/
 
 # Runtime data
 data/*.sqlite3
@@ -21,8 +23,6 @@ npm-debug.log*
 models/*
 !models/.keep
 !models/MODEL_README.md
-# v5_ru.pt may be supplied locally for offline builds. If committed, use Git LFS.
-!models/v5_ru.pt
 
 # Secrets / local env
 .env

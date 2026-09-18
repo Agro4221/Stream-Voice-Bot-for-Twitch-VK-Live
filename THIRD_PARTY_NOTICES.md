@@ -9,7 +9,7 @@ license and terms.
 The Russian V5 model is downloaded from the official Silero model host:
 https://models.silero.ai/models/tts/ru/v5_ru.pt
 
-Silero documents V5 models under the project's CC-NC-BY licensing terms.
+Silero publishes these V5 models under the project's Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) license.
 See:
 - https://github.com/snakers4/silero-models
 - https://github.com/snakers4/silero-models/blob/master/LICENSE
@@ -54,3 +54,10 @@ See the package metadata and upstream project for the current license.
 
 The project also uses NumPy, SciPy, SoundDevice and SoundFile. Their respective
 licenses remain applicable to the installed packages.
+
+## Argos Translate
+
+Used for optional local multilingual subtitle translation.
+https://github.com/argosopentech/argos-translate
+
+The Argos Translate library is MIT/CC0 licensed according to its upstream project. Individual translation model packages are distributed separately and may carry their own licensing terms; users should review the license metadata for each language package they install.

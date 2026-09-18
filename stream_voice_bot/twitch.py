@@ -19,6 +19,7 @@ log = logging.getLogger("stream_voice_bot.twitch")
 API_BASE = "https://api.twitch.tv/helix"
 OAUTH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize"
 OAUTH_TOKEN = "https://id.twitch.tv/oauth2/token"
+OAUTH_DEVICE = "https://id.twitch.tv/oauth2/device"
 EVENTSUB_WS = "wss://eventsub.wss.twitch.tv/ws"
 
 
@@ -75,7 +76,66 @@ class TwitchService:
         ) or "http://localhost:8787/auth/twitch/callback"
 
     def configured(self) -> bool:
-        return bool(self.client_id() and self.client_secret())
+        return bool(self.client_id())
+
+    def using_device_flow(self) -> bool:
+        return bool(self.client_id())
+
+    async def start_device_flow(self) -> dict:
+        if not self.client_id():
+            raise RuntimeError("Set Twitch Client ID first")
+        data = {"client_id": self.client_id(), "scopes": " ".join(self.REQUIRED_SCOPES)}
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(OAUTH_DEVICE, data=data)
+            r.raise_for_status()
+            payload = r.json()
+        self.db.set_setting("twitch_device_code", payload.get("device_code", ""))
+        self.db.set_setting("twitch_device_expires_at", str(time.time() + int(payload.get("expires_in", 0))))
+        self.db.set_setting("twitch_device_interval", str(payload.get("interval", 5)))
+        self.on_status({
+            "connected": False,
+            "device_pending": True,
+            "message": f"Открой {payload.get('verification_uri')} и введи код {payload.get('user_code')}",
+        })
+        return payload
+
+    async def finish_device_flow(self, device_code: str, interval: int = 5, expires_in: int = 1800) -> None:
+        deadline = time.time() + max(30, expires_in)
+        wait = max(1, int(interval or 5))
+        async with httpx.AsyncClient(timeout=20) as client:
+            while time.time() < deadline:
+                r = await client.post(OAUTH_TOKEN, data={
+                    "client_id": self.client_id(),
+                    "device_code": device_code,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                })
+                if r.status_code == 200:
+                    data = r.json()
+                    self.secrets.set("twitch_access_token", data["access_token"])
+                    if data.get("refresh_token"):
+                        self.secrets.set("twitch_refresh_token", data["refresh_token"])
+                    self.db.set_setting("twitch_scopes", json.dumps(data.get("scope", []), ensure_ascii=False))
+                    self.db.set_setting("twitch_token_updated_at", str(time.time()))
+                    self.db.delete_setting("twitch_device_code")
+                    await self.identify()
+                    await self.start()
+                    self.on_status({"connected": True, "device_pending": False, "message": "Twitch подключён через Device Code Flow"})
+                    return
+                try:
+                    err = r.json().get("message") or r.json().get("error") or "authorization_pending"
+                except Exception:
+                    err = "authorization_pending"
+                if err == "authorization_pending":
+                    await asyncio.sleep(wait)
+                    continue
+                if err == "slow_down":
+                    wait += 5
+                    await asyncio.sleep(wait)
+                    continue
+                if err in {"expired_token", "access_denied"}:
+                    raise RuntimeError(f"Twitch Device Flow: {err}")
+                r.raise_for_status()
+        raise RuntimeError("Twitch Device Flow timed out")
 
     def authorization_url(self) -> str:
         state = secrets.token_urlsafe(32)
@@ -117,16 +177,15 @@ class TwitchService:
         rt = self.refresh_token()
         if not rt:
             raise RuntimeError("No Twitch refresh token")
+        params = {
+            "client_id": self.client_id(),
+            "grant_type": "refresh_token",
+            "refresh_token": rt,
+        }
+        if self.client_secret():
+            params["client_secret"] = self.client_secret()
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(
-                OAUTH_TOKEN,
-                params={
-                    "client_id": self.client_id(),
-                    "client_secret": self.client_secret(),
-                    "grant_type": "refresh_token",
-                    "refresh_token": rt,
-                },
-            )
+            r = await client.post(OAUTH_TOKEN, params=params)
             r.raise_for_status()
             data = r.json()
 
@@ -301,7 +360,7 @@ class TwitchService:
         if self.task and not self.task.done():
             return
         if not self.configured():
-            raise RuntimeError("Set Twitch Client ID and Client Secret first")
+            raise RuntimeError("Set Twitch Client ID first")
         if not self.access_token():
             raise RuntimeError("Authorize Twitch first")
 

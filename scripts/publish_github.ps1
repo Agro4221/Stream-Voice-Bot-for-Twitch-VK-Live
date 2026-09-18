@@ -25,11 +25,14 @@ if (-not (Test-Path (Join-Path $ProjectRoot '.git'))) {
   git init
 }
 
-$remote = (git remote get-url origin 2>$null)
-if (-not $remote) {
+$hasOrigin = @(git remote 2>$null | Where-Object { $_ -eq "origin" }).Count -gt 0
+if ($hasOrigin) {
+  $remote = (git remote get-url origin 2>$null).Trim()
+  if ($remote -ne $GitHubRepoUrl) {
+    git remote set-url origin $GitHubRepoUrl
+  }
+} else {
   git remote add origin $GitHubRepoUrl
-} elseif ($remote -ne $GitHubRepoUrl) {
-  git remote set-url origin $GitHubRepoUrl
 }
 
 git branch -M main
@@ -37,5 +40,5 @@ git add .
 git status --short
 Write-Host "Review the files above. Then press Enter to create the initial commit." -ForegroundColor Cyan
 Read-Host | Out-Null
-git commit -m "Initial public release 1.0.0"
+git commit -m "Publish release"
 git push -u origin main

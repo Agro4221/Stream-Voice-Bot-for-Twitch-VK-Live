@@ -3,7 +3,7 @@
 > Локальный Windows-бот для озвучки чата стрима через **Silero TTS**, Twitch Channel Points и VK Видео Live. Голос можно напрямую отдавать в **OBS через VB-CABLE**, а очередь озвучки управляется из локальной админки.
 
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python&logoColor=white)
 ![Silero](https://img.shields.io/badge/TTS-Silero%20V5-7C3AED)
 ![Twitch](https://img.shields.io/badge/Twitch-EventSub-9146FF?logo=twitch&logoColor=white)
 ![VK Video Live](https://img.shields.io/badge/VK%20Video%20Live-chat-0077FF)
@@ -18,11 +18,12 @@
 | ⏯️ Pause / Resume / Stop / Skip / очистка очереди | ✅ |
 | 🔁 Повтор одного или нескольких сообщений | ✅ |
 | 📜 История озвучки | ✅ |
-| 🟣 Twitch OAuth | ✅ |
+| 🟣 Twitch Device Code Flow / OAuth | ✅ |
 | 🎁 Twitch Channel Points → текст → TTS | ✅ |
 | 🔵 VK Видео Live → чат → TTS | ✅ |
 | 🎧 VB-CABLE → OBS, 48 kHz stereo | ✅ |
 | 🎤 faster-whisper STT | ✅, опционально |
+| 🌍 Несколько subtitle tracks для OBS | ✅ |
 | 📝 Browser Source субтитров | ✅, опционально |
 | 💾 Хранение Twitch/VK секретов в Windows Credential Manager | ✅ |
 
@@ -68,13 +69,13 @@ start_bot.bat
 
 Скрипт сам:
 
-1. найдёт или установит Python 3.11;
+1. использует совместимый Python 3.11–3.13, если он уже есть в системе; если нет — ставит отдельный Python runtime в `.runtime\python` внутри папки проекта;
 2. создаст `.venv` рядом с проектом;
 3. поставит Python-зависимости;
 4. установит PyTorch;
-5. найдёт или установит Node.js LTS;
+5. использует Node.js из PATH, а если его нет — скачает отдельный Node.js LTS в `.runtime\node`;
 6. установит зависимости VK bridge через `npm` локально в проекте;
-7. найдёт или установит FFmpeg;
+7. проверит наличие FFmpeg (он необязателен для базовой работы);
 8. скачает `models/v5_ru.pt`, если модель отсутствует;
 9. запустит бота.
 
@@ -93,6 +94,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps
 ```text
 start_bot.bat
 ```
+
+### 📁 Переносимость
+
+Проект не привязан к `C:\Users\...`, OneDrive или конкретному диску. Корень определяется по расположению самого проекта. Если Python или Node.js отсутствуют, установщик использует локальные runtime в `.runtime`; кэши pip и Hugging Face также хранятся в `.cache` рядом с проектом. Поэтому проект можно распаковать, например, на `D:` и работать оттуда.
+
+Большие системные зависимости не устанавливаются принудительно. FFmpeg остаётся необязательным инструментом.
 
 ## 🤖 Silero TTS
 
@@ -116,22 +123,18 @@ start_bot.bat
 - максимальная длина сообщения;
 - тест обычного и громкого профиля.
 
-Изменённые поля не должны перетираться автообновлением интерфейса. Кнопка сохранения записывает значения в локальную SQLite-базу проекта.
+Изменённые поля не должны перетираться автообновлением интерфейса. Громкость задаётся ползунком в dB (от −12 до +12 dB), затем применяется нормализация и peak limiting. Кнопка сохранения записывает значения в локальную SQLite-базу проекта.
 
 ## 🟣 Twitch
 
-1. Создай приложение в Twitch Developer Console.
-2. Используй Redirect URI:
+1. Создай приложение в Twitch Developer Console и скопируй Client ID.
+2. В админке вставь Client ID и нажми **Подключить Twitch**.
+3. Twitch откроет страницу активации Device Code — подтверди доступ.
+4. Бот сам дождётся подтверждения и подключит EventSub.
 
-```text
-http://localhost:8787/auth/twitch/callback
-```
+Для нового подключения достаточно Client ID. Кнопка рядом с полем ведёт в Twitch Developer Console. Старый OAuth с сохранённым Client Secret оставлен для совместимости.
 
-3. В админке укажи Client ID и Client Secret.
-4. Пройди OAuth.
-5. После первого сохранения Secret повторно вводить его не требуется.
-
-Client ID и обычные настройки хранятся локально в SQLite. Client Secret, access token и refresh token хранятся через Windows Credential Manager.
+Client ID и обычные настройки хранятся локально в SQLite. Access/refresh tokens и legacy Client Secret хранятся через Windows Credential Manager.
 
 ### Channel Points
 
@@ -160,6 +163,17 @@ https://live.vkvideo.ru/username
 ```
 
 `SERVICE_KEY` и `SECURE_KEY` сохраняются в Windows Credential Manager и не попадают в SQLite.
+
+## 📝 Subtitles
+
+Админка поддерживает несколько subtitle tracks и отдельный OBS Browser Source для каждой дорожки:
+
+```text
+http://127.0.0.1:8787/subtitles/ru
+http://127.0.0.1:8787/subtitles/en
+```
+
+Режим `Оригинал` выводит исходный текст. Режим `Перевод на выбранный язык` отправляет распознанную речь в локальный Argos Translate и обновляет выбранную языковую дорожку. Можно создать несколько переводов одновременно; недостающие языковые пакеты скачиваются один раз при подготовке/первом использовании.
 
 ## 🎧 OBS + VB-CABLE
 
@@ -296,4 +310,4 @@ start_bot_minimized.bat
 
 Исходный код **Stream Voice Bot** распространяется под лицензией MIT.
 
-Модель `v5_ru.pt` является сторонним компонентом и имеет собственные условия лицензирования Silero; она не покрывается лицензией MIT этого проекта.
+Модель `v5_ru.pt` является сторонним компонентом. Silero публикует V5-модели по лицензии CC BY-NC-SA 4.0; модель не покрывается лицензией MIT этого проекта. Условия лицензии модели, включая ограничение на коммерческое использование, распространяются на её использование и распространение.

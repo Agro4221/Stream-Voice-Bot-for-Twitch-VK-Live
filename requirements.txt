@@ -13,3 +13,5 @@ obsws-python==1.8.0
 httpx
 keyring==25.7.0
 num2words==0.5.14
+
+argostranslate==1.11.0

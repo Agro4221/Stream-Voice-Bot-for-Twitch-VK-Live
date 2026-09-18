@@ -14,9 +14,18 @@
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,Arial,sans-serif}
 header{padding:22px 28px;border-bottom:1px solid var(--border);background:#11151c;display:flex;justify-content:space-between;gap:20px;align-items:center}
 h1,h2,h3{margin:0 0 10px} h1{font-size:22px} h2{font-size:16px}
-main{max-width:1250px;margin:0 auto;padding:22px;display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
-.wide{grid-column:1/-1}
+main{max-width:1250px;margin:0 auto;padding:22px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px;min-width:0}
+.wide{width:100%}
+.two-col{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.audio-row{display:flex;gap:8px;align-items:center;min-width:0}
+.audio-row select{flex:1 1 auto;min-width:0;width:100%}
+.quick-text{min-height:72px}
+.quick-meta{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;align-items:center}
+.quick-meta input{min-width:0;width:100%}
+@media(max-width:700px){.quick-meta{grid-template-columns:1fr}.quick-meta button{width:100%}}
+.now-card{min-height:0;padding-bottom:12px}.audio-card{min-height:0}.silero-card{min-height:0}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 input,select,button,textarea{font:inherit}
 input,select,textarea{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:9px}
@@ -26,6 +35,7 @@ button:hover{filter:brightness(1.12)}
 button.danger{background:#7a2e36} button.ok{background:#245d46}
 button.secondary{background:#303746}
 .small{font-size:12px;color:var(--muted)}
+.button-link{display:inline-block;text-decoration:none;border-radius:9px;padding:9px 12px;background:#303746;color:white}.button-link:hover{filter:brightness(1.12)}
 .stat{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .pill{padding:4px 8px;border-radius:999px;background:var(--panel2)}
 .current{background:#18263c;border-color:#34527f}
@@ -36,10 +46,10 @@ th,td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top;text-
 td.text{max-width:520px;word-break:break-word}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
-.field{min-width:150px}
+.field{min-width:150px}.range-wrap{display:flex;align-items:center;gap:10px}.range-wrap input[type=range]{flex:1}.range-value{min-width:68px;text-align:right;font-variant-numeric:tabular-nums}.subtrack{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:8px;background:var(--panel2)}
 .notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.profile-box{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
 .oktext{color:var(--ok)} .badtext{color:var(--danger)}
-@media(max-width:900px){main{grid-template-columns:1fr}}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -53,13 +63,16 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <h2>Интеграция</h2>
   <div class="row">
     <span id="twitchStatus" class="pill">Twitch: не подключён</span>
-    <span id="sttStatus" class="pill">STT: остановлен</span>
+    <span id="vkStatusTop" class="pill">VK Видео Live: не подключён</span>
+     <span id="sttStatus" class="pill">STT: остановлен</span>
   </div>
   <div class="notice" style="margin-top:10px">
-    Субтитры для OBS: <code>http://127.0.0.1:8787/subtitles</code>
+    Субтитры настраиваются ниже. Для каждой дорожки свой OBS URL: <code>/subtitles/ID</code>.
   </div>
 </section>
-<section class="card">
+<div class="two-col">
+  <div class="stack">
+<section class="card now-card">
   <h2>Сейчас</h2>
   <div id="current">Ничего не озвучивается</div>
   <div id="audioStatus" class="small" style="margin-top:8px"></div>
@@ -71,9 +84,32 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="secondary" onclick="api('/api/queue/clear')">Clear queue</button>
   </div>
 </section>
-
-
-<section class="card">
+<section class="card audio-card">
+  <h2>Аудиовывод</h2>
+  <div class="audio-row">
+    <select id="device"></select>
+    <button onclick="saveDevice()">Применить</button>
+    <button class="secondary" onclick="audioTest()">Тест звука</button>
+  </div>
+  <div class="small" style="margin-top:8px">
+    Вывод идёт напрямую из Python-аудиодвижка. AIMP не открывается.
+    В OBS затем можно захватить аудиосессию приложения или выбранное устройство.
+  </div>
+</section>
+<section class="card quick-card">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><h2>Быстро добавить озвучку</h2><div class="small">Ручное сообщение в очередь без перехода к истории.</div></div>
+  </div>
+  <textarea id="text" class="quick-text" placeholder="Текст для озвучки..."></textarea>
+  <div class="quick-meta" style="margin-top:8px">
+    <input id="username" value="admin" placeholder="Пользователь">
+    <select id="profile"><option value="normal">Обычная</option><option value="loud">Громкая</option></select>
+    <button onclick="enqueue()">Добавить в очередь</button>
+  </div>
+</section>
+  </div>
+  <div class="stack">
+<section class="card silero-card">
   <div class="row" style="justify-content:space-between;align-items:flex-start">
     <div>
       <h2>Silero — озвучка</h2>
@@ -81,22 +117,22 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </div>
     <span id="ttsDirty" class="pill" style="display:none">Есть несохранённые изменения</span>
   </div>
-  <div class="stat"><span>Модель</span><span id="model"></span></div>
-  <div class="notice" style="margin-top:8px">Громкость нормализуется перед усилением, затем применяется громкость профиля.</div>
+  <div class="stat"><span>Модель</span><span class="row" style="justify-content:flex-end"><span id="model"></span><button class="secondary" type="button" onclick="installModel(false)">Установить / проверить</button></span></div>
+  <div class="notice" style="margin-top:8px">Громкость нормализуется перед усилением. Профиль задаётся в dB и ограничивается мягким peak-limiter, поэтому разница действительно слышна.</div>
   <div class="profile-grid" style="margin-top:12px">
     <div class="profile-box">
       <div class="row" style="justify-content:space-between"><b>Обычная</b><span class="pill">normal</span></div>
       <div class="field" style="margin-top:9px"><label>Голос</label><select id="normal_speaker">
         <option>aidar</option><option>baya</option><option>kseniya</option><option>xenia</option><option>eugene</option>
       </select></div>
-      <div class="field" style="margin-top:9px"><label>Громкость ×</label><input id="normal_volume" type="number" min="0" max="2.5" step=".05" style="width:100%"></div>
+      <div class="field" style="margin-top:9px"><label>Громкость</label><div class="range-wrap"><input id="normal_volume" type="range" min="-12" max="12" step=".5"><span id="normal_volume_value" class="range-value">0 dB</span></div></div>
     </div>
     <div class="profile-box">
       <div class="row" style="justify-content:space-between"><b>Громкая</b><span class="pill">loud</span></div>
       <div class="field" style="margin-top:9px"><label>Голос</label><select id="loud_speaker">
         <option>aidar</option><option>baya</option><option>kseniya</option><option>xenia</option><option>eugene</option>
       </select></div>
-      <div class="field" style="margin-top:9px"><label>Громкость ×</label><input id="loud_volume" type="number" min="0" max="2.5" step=".05" style="width:100%"></div>
+      <div class="field" style="margin-top:9px"><label>Громкость</label><div class="range-wrap"><input id="loud_volume" type="range" min="-12" max="12" step=".5"><span id="loud_volume_value" class="range-value">+6 dB</span></div></div>
     </div>
   </div>
   <div class="row" style="margin-top:12px">
@@ -112,22 +148,18 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   </div>
   <div id="testResult" class="small" style="margin-top:8px"></div>
 </section>
-
-
-<section class="card">
-  <h2>Аудиовывод</h2>
-  <div class="row">
-    <select id="device" style="flex:1"></select>
-    <button onclick="saveDevice()">Применить</button>
-    <button class="secondary" onclick="audioTest()">Тест звука</button>
   </div>
-  <div class="small" style="margin-top:8px">
-    Вывод идёт напрямую из Python-аудиодвижка. AIMP не открывается.
-    В OBS затем можно захватить аудиосессию приложения или выбранное устройство.
-  </div>
-</section>
+</div>
 
-<section class="card wide">
+
+
+
+
+
+
+
+
+<section class="card wide obs-card">
   <h2>OBS: мониторинг голоса</h2>
   <div class="small">Бот отдаёт звук в <b>CABLE Input</b>, OBS забирает его через <b>CABLE Output</b>. Чтобы слышать этот же голос в наушниках, мониторить нужно уже источник внутри OBS — не CABLE Output обратно в OBS.</div>
   <div class="row" style="margin-top:10px">
@@ -138,38 +170,20 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="notice" style="margin-top:10px">Не выбирай для Monitoring Device тот же вход, который OBS захватывает обратно: иначе возможны эхо или аудиопетля.</div>
 </section>
 
-<section class="card">
-  <h2>Быстро добавить озвучку</h2>
-  <textarea id="text" placeholder="Текст для тестовой озвучки..."></textarea>
-  <div class="row" style="margin-top:8px">
-    <input id="username" value="admin" placeholder="Пользователь">
-    <select id="profile">
-      <option value="normal">Обычная</option>
-      <option value="loud">Громкая</option>
-    </select>
-    <button onclick="enqueue()">Добавить в очередь</button>
-  </div>
-</section>
-
-
 <section class="card wide">
   <h2>Twitch</h2>
   <div class="row">
-    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="text" style="width:100%" autocomplete="off"></div>
-    <div class="field" style="flex:1"><label>Client Secret</label><input id="twitch_secret" type="password" style="width:100%" autocomplete="new-password" placeholder="не нужно вводить повторно"></div>
-    <div class="field" style="flex:1"><label>Redirect URI</label><input id="twitch_redirect" type="text" style="width:100%" value="http://localhost:8787/auth/twitch/callback"></div>
+    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="text" style="width:100%" autocomplete="off" placeholder="Вставь Client ID один раз"></div>
   </div>
   <div class="actions" style="margin-top:10px">
-    <button onclick="saveTwitch()">Сохранить Twitch</button>
-    <button class="secondary" onclick="testTwitchCredentials()">Проверить сохранение Secret</button>
-    <button class="ok" onclick="connectTwitch()">Подключить / обновить</button>
+    <button onclick="saveTwitch()">Сохранить Client ID</button>
+    <button class="ok" onclick="connectTwitch()">Подключить Twitch</button>
     <button class="secondary" onclick="disconnectTwitch()">Отключить</button>
     <button class="secondary" onclick="loadRewards()">Загрузить Channel Points</button>
   </div>
-  <div id="twitchSecretState" class="small" style="margin-top:8px"></div>
-  <div class="small" style="margin-top:8px">
-    Client ID сохраняется локально, а Client Secret/access/refresh tokens хранятся в Windows Credential Manager. Повторно вводить секрет после перезапуска не нужно.
-    Redirect URI должен точно совпадать с зарегистрированным в Twitch Developer Console.
+  <div class="row" style="margin-top:8px">
+    <a class="button-link" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">Где взять Client ID ↗</a>
+    <span class="small">Создай приложение и скопируй Client ID.</span>
   </div>
   <div id="twitchInfo" class="small" style="margin-top:8px"></div>
 
@@ -201,6 +215,14 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     Чат VK теперь подключается через readonly-клиент для актуального домена live.vkvideo.ru. Для чтения сообщений ключи SERVICE/SECURE не требуются; они остаются сохранены в защищённом хранилище для будущих DevAPI-функций.
   </div>
   <div id="vkInfo" class="small" style="margin-top:8px"></div>
+</section>
+
+<section class="card wide">
+  <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Субтитры для OBS</h2><div class="small">Для каждой дорожки можно выбрать оригинал или автоматический перевод на отдельный язык. Дорожки можно выводить одновременно через несколько Browser Source.</div></div><button class="secondary" onclick="addSubtitleTrack()">+ Добавить дорожку</button></div>
+  <div id="subtitleTracks"></div>
+  <div class="small" style="margin-top:10px">URL дорожки: <code>http://127.0.0.1:8787/subtitles/ID</code>. Для каждой дорожки можно выбрать оригинал или перевод STT на другой язык. Перевод выполняется локально через Argos Translate; нужные языковые пакеты скачиваются один раз.</div>
+  <div class="actions" style="margin-top:10px"><button onclick="saveSubtitleTracks()">Сохранить дорожки</button><button class="secondary" onclick="prepareSubtitleTranslations()">Подготовить переводчики</button></div>
+  <div id="subtitleInfo" class="small" style="margin-top:8px"></div>
 </section>
 
 <section class="card wide">
@@ -270,6 +292,71 @@ function writeServerValue(id, value){
   el.dataset.serverValue=v;
 }
 
+function dbLabel(v){ const n=Number(v); return (n>0?'+':'')+n.toFixed(1).replace('.0','')+' dB'; }
+function syncVolumeLabel(id, labelId){ const el=document.getElementById(id), out=document.getElementById(labelId); if(el&&out) out.textContent=dbLabel(el.value); }
+let volumeSaveTimer=null;
+async function scheduleVolumeAutosave(){
+  clearTimeout(volumeSaveTimer);
+  volumeSaveTimer=setTimeout(async()=>{
+    try{
+      await api('/api/settings',{method:'POST',body:JSON.stringify({
+        normal_volume:parseFloat(document.getElementById('normal_volume').value),
+        loud_volume:parseFloat(document.getElementById('loud_volume').value)
+      })});
+      ['normal_volume','loud_volume'].forEach(clearEditableState);
+      document.getElementById('ttsDirty').style.display='none';
+    }catch(e){ console.error('Volume autosave failed',e); }
+  },250);
+}
+['normal_volume','loud_volume'].forEach(id=>{ const el=document.getElementById(id); if(el) el.addEventListener('input',()=>{ syncVolumeLabel(id,id+'_value'); el.dataset.userEdited='1'; scheduleVolumeAutosave(); }); });
+const SUB_LANGS={
+  ru:'Русский', en:'English', de:'Deutsch', pl:'Polski', es:'Español', fr:'Français', it:'Italiano',
+  uk:'Українська', pt:'Português', tr:'Türkçe', cs:'Čeština', nl:'Nederlands', da:'Dansk', sv:'Svenska',
+  fi:'Suomi', el:'Ελληνικά', hu:'Magyar', ro:'Română', ja:'日本語', ko:'한국어', zh:'中文', ar:'العربية',
+  hi:'हिन्दी', id:'Bahasa Indonesia', vi:'Tiếng Việt'
+};
+function languageOptions(selected){
+  return Object.entries(SUB_LANGS).map(([code,name])=>`<option value="${code}" ${code===selected?'selected':''}>${name} (${code})</option>`).join('');
+}
+function renderSubtitleTracks(tracks){
+  const box=document.getElementById('subtitleTracks');
+  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}">
+    <div class="row">
+      <div class="field"><label>ID</label><input data-k="id" value="${esc(t.id||'')}" maxlength="32"></div>
+      <div class="field" style="flex:1"><label>Название</label><input data-k="name" value="${esc(t.name||'')}" maxlength="64" style="width:100%"></div>
+      <div class="field"><label>Язык</label><select data-k="language">${languageOptions((t.language||'ru').split('-')[0].toLowerCase())}</select></div>
+      <div class="field"><label>Тип</label><select data-k="mode">
+        <option value="source" ${(t.mode||'source')==='source'?'selected':''}>Оригинал</option>
+        <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
+      </select></div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
+      <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
+    </div>
+    <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
+  </div>`).join('') || '<div class="small">Нет дорожек.</div>';
+}
+function collectSubtitleTracks(){
+  return [...document.querySelectorAll('.subtrack')].map(row=>{
+    const get=k=>row.querySelector(`[data-k="${k}"]`);
+    return {id:get('id').value.trim(),name:get('name').value.trim(),language:get('language').value.trim().toLowerCase(),enabled:get('enabled').checked,mode:get('mode').value};
+  });
+}
+function addSubtitleTrack(){
+  const tracks=collectSubtitleTracks();
+  let i=1, id='track'+i; while(tracks.some(t=>t.id===id)) id='track'+(++i);
+  tracks.push({id,name:'Новая дорожка',language:'ru',enabled:true,mode:'source'}); renderSubtitleTracks(tracks);
+}
+async function saveSubtitleTracks(){
+  try{ const x=await api('/api/subtitles/tracks',{method:'POST',body:JSON.stringify({tracks:collectSubtitleTracks()})}); renderSubtitleTracks(x.tracks); document.getElementById('subtitleInfo').textContent='Дорожки субтитров сохранены.'; refresh(); }
+  catch(e){ document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message; }
+}
+async function prepareSubtitleTranslations(){
+  try{
+    const x=await api('/api/subtitles/prepare',{method:'POST'});
+    document.getElementById('subtitleInfo').textContent=x.message||'Подготовка переводчиков запущена.';
+    refresh();
+  }catch(e){document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message;}
+}
 async function refresh(){
   if(refreshBusy) return;
   refreshBusy=true;
@@ -285,15 +372,21 @@ async function refresh(){
           ? 'Аудио: '+esc(s.audio.device)+' · '+esc(s.audio.sample_rate)+' Hz'
           : 'Аудио ещё не запускалось');
 
-    document.getElementById('model').textContent=s.model.exists?'v5_ru.pt ✓':'v5_ru.pt не найден — запусти установку';
+    const modelEl=document.getElementById('model');
+    if(s.model.installing){ modelEl.textContent='Скачивание…'; }
+    else if(s.model.exists){ modelEl.textContent='v5_ru.pt ✓'; }
+    else { modelEl.textContent='v5_ru.pt не найден'; }
+    if(s.model.message && s.model.message !== 'Модель Silero готова ✓'){
+      const m=document.getElementById('audioStatus');
+      if(!s.audio.last_error) m.textContent=s.model.message;
+    }
 
     // Twitch fields are loaded once; the secret itself is never written into the page.
     if(!document.getElementById('twitch_id').dataset.loaded){
       try{
         const tc=await api('/api/twitch/config');
         writeServerValue('twitch_id',tc.client_id||'');
-        writeServerValue('twitch_redirect',tc.redirect_uri||'http://localhost:8787/auth/twitch/callback');
-        document.getElementById('twitchSecretState').textContent=tc.secret_saved?'Client Secret сохранён в Windows Credential Manager ✓':'Client Secret не сохранён';
+        document.getElementById('twitchInfo').textContent=tc.client_id?'Client ID сохранён ✓':'Сначала добавь Client ID';
         document.getElementById('twitch_id').dataset.loaded='1';
       }catch(e){}
     }
@@ -301,7 +394,9 @@ async function refresh(){
     // VK channel keeps a local draft while the user edits it.
     writeServerValue('vk_channel', s.vkplay.channel_id||'');
     const vk=document.getElementById('vkStatus');
-    vk.textContent=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
+    const vkTop=document.getElementById('vkStatusTop');
+    const vkText=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
+    vk.textContent=vkText; vkTop.textContent=vkText;
     document.getElementById('vkInfo').textContent=s.vkplay.message||'';
     if(s.vkplay.service_key_saved || s.vkplay.secure_key_saved){
       document.getElementById('vkInfo').textContent +=
@@ -312,7 +407,19 @@ async function refresh(){
     const tw=document.getElementById('twitchStatus');
     tw.textContent=s.twitch.authorized ? ('Twitch: '+(s.twitch.user.login||'подключён')+(s.twitch.connected?' · EventSub ✓':' · EventSub не запущен')) : 'Twitch: не авторизован';
     const st=document.getElementById('sttStatus');
-    st.textContent=s.stt.running ? ('STT: работает · '+(s.stt.model||'')) : 'STT: остановлен';
+    if(s.stt.model_loading){
+      st.textContent='STT: загрузка · '+(s.stt.model||'');
+      st.className='pill';
+    } else if(s.stt.running){
+      st.textContent='STT: работает · '+(s.stt.model||'');
+      st.className='pill oktext';
+    } else if(s.stt.last_error){
+      st.textContent='STT: ошибка';
+      st.className='pill';
+    } else {
+      st.textContent='STT: остановлен';
+      st.className='pill';
+    }
     document.getElementById('twitchInfo').textContent=s.twitch.message||'';
     if(!document.getElementById('sttInfo').matches(':focus')){
       document.getElementById('sttInfo').textContent=s.stt.message||'';
@@ -320,19 +427,23 @@ async function refresh(){
 
     const ttsFields={
       normal_speaker:s.profiles.normal.speaker,
-      normal_volume:s.profiles.normal.volume,
+      normal_volume:s.profiles.normal.volume_db,
       loud_speaker:s.profiles.loud.speaker,
-      loud_volume:s.profiles.loud.volume,
+      loud_volume:s.profiles.loud.volume_db,
       speed:s.settings.speed,
       max_chars:s.settings.max_chars
     };
     Object.entries(ttsFields).forEach(([id,value])=>writeServerValue(id,value));
+    syncVolumeLabel('normal_volume','normal_volume_value'); syncVolumeLabel('loud_volume','loud_volume_value');
     document.getElementById('profile').value=s.active_profile;
     document.getElementById('ttsDirty').style.display=Object.keys(ttsFields).some(id=>{
       const el=document.getElementById(id); return el?.dataset.userEdited==='1' || (el?.dataset.serverValue!==undefined && String(el.value)!==String(el.dataset.serverValue));
     })?'inline-flex':'none';
 
     const c=s.queue.current;
+    if(s.subtitle_tracks && !document.querySelector('.subtrack')) renderSubtitleTracks(s.subtitle_tracks);
+    if(s.translation?.message) document.getElementById('subtitleInfo').textContent=s.translation.message;
+
     document.getElementById('current').innerHTML=c
       ? `<div class="pill current"><b>${esc(c.username)}</b>: ${esc(c.text)}<br><span class="small">${c.profile==='loud'?'Громкая':'Обычная'} · ${s.queue.paused?'ПАУЗА':'Воспроизводится'}</span></div>`
       : 'Ничего не озвучивается';
@@ -412,14 +523,27 @@ async function saveSettings(){
     refresh();
   }catch(e){alert(e.message)}
 }
-async function audioTest(){
+async function installModel(force=false){
+  const el=document.getElementById('audioStatus');
+  if(el) el.textContent='Проверяю/устанавливаю Silero…';
   try{
-    const x=await api('/api/audio/test',{method:'POST'});
-    document.getElementById('audioStatus').textContent='Тест звука OK: '+x.device+' · '+x.sample_rate+' Hz';
+    await api('/api/model/install?force='+(force?'true':'false'),{method:'POST'});
+    if(el) el.textContent='Silero: модель готова ✓';
+    refresh();
+  }catch(e){
+    if(el) el.innerHTML='<span class="badtext">Silero: '+esc(e.message)+'</span>';
+  }
+}
+async function audioTest(){
+  const profile=document.getElementById('profile')?.value || 'normal';
+  try{
+    const x=await api('/api/audio/test?profile='+encodeURIComponent(profile),{method:'POST'});
+    document.getElementById('audioStatus').textContent='Тест звука OK: '+x.device+' · '+x.sample_rate+' Hz · '+(profile==='loud'?'Громкая':'Обычная');
   }catch(e){
     document.getElementById('audioStatus').textContent='Ошибка теста звука: '+e.message;
   }
 }
+
 async function saveDevice(){
   try{
     await api('/api/settings',{method:'POST',body:JSON.stringify({output_device:parseInt(document.getElementById('device').value,10)})});
@@ -450,37 +574,47 @@ refresh();setInterval(refresh,1500);
 
 async function saveTwitch(){
   try{
-    const secret=document.getElementById('twitch_secret').value.trim();
-    const x=await api('/api/twitch/config',{method:'POST',body:JSON.stringify({
-      client_id:document.getElementById('twitch_id').value.trim(),
-      client_secret:secret,
-      redirect_uri:document.getElementById('twitch_redirect').value.trim()
-    })});
-    document.getElementById('twitchSecretState').textContent='Client Secret сохранён в Windows Credential Manager ✓';
-    document.getElementById('twitch_secret').value='';
-    alert(x.message||'Сохранено.');
+    const id=document.getElementById('twitch_id').value.trim();
+    const x=await api('/api/twitch/config',{method:'POST',body:JSON.stringify({client_id:id})});
+    clearEditableState('twitch_id');
+    document.getElementById('twitchInfo').textContent='Client ID сохранён. Для подключения Secret не нужен.';
+    refresh();
   }catch(e){alert(e.message)}
 }
 async function testTwitchCredentials(){
   try{
     const x=await api('/api/twitch/credentials/test',{method:'POST'});
-    document.getElementById('twitchSecretState').textContent=
-      x.secret_saved ? 'Client Secret сохранён и читается ✓' : 'Client Secret не найден';
+    document.getElementById('twitchInfo').textContent=
+      x.secret_saved ? 'Старый Client Secret сохранён и читается ✓' : 'Device Flow работает без Client Secret.';
   }catch(e){alert(e.message)}
 }
 async function connectTwitch(){
   try{
     const id=document.getElementById('twitch_id').value.trim();
-    const secret=document.getElementById('twitch_secret').value.trim();
-    await api('/api/twitch/config',{method:'POST',body:JSON.stringify({
-      client_id:id,
-      client_secret:secret,
-      redirect_uri:document.getElementById('twitch_redirect').value.trim()
-    })});
-    document.getElementById('twitch_secret').value='';
-    document.getElementById('twitchSecretState').textContent='Client Secret сохранён ✓';
-    window.open('/auth/twitch/start','_blank','width=900,height=750');
+    if(id) await api('/api/twitch/config',{method:'POST',body:JSON.stringify({client_id:id})});
+    const x=await api('/api/twitch/device/start',{method:'POST'});
+    const url=x.verification_uri_complete || x.verification_uri;
+    window.open(url,'_blank','width=900,height=750');
+    const code=x.user_code ? ('Код: '+x.user_code) : '';
+    document.getElementById('twitchInfo').textContent='Открой Twitch и подтверди доступ. '+code;
+    pollTwitchDevice(x.expires_in||1800);
   }catch(e){alert(e.message)}
+}
+let twitchDevicePoll=null;
+async function pollTwitchDevice(expires){
+  if(twitchDevicePoll) clearInterval(twitchDevicePoll);
+  const started=Date.now();
+  twitchDevicePoll=setInterval(async()=>{
+    if(Date.now()-started > expires*1000){clearInterval(twitchDevicePoll); twitchDevicePoll=null; return;}
+    try{
+      const s=await api('/api/twitch/device/status');
+      if(s.authorized || s.connected){
+        clearInterval(twitchDevicePoll); twitchDevicePoll=null;
+        document.getElementById('twitchInfo').textContent='Twitch подключён ✓';
+        refresh();
+      }
+    }catch(e){console.debug(e)}
+  },2000);
 }
 async function disconnectTwitch(){
   try{await api('/api/twitch/stop',{method:'POST'});refresh()}catch(e){alert(e.message)}
@@ -570,7 +704,6 @@ function clearEditableState(id){
 [
   'vk_channel',
   'twitch_id',
-  'twitch_redirect',
   'normal_speaker','normal_volume','loud_speaker','loud_volume','speed','max_chars',
   'stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute',
   'device'
@@ -608,7 +741,15 @@ async function saveStt(){
   }catch(e){alert(e.message)}
 }
 async function startStt(){
-  try{const x=await api('/api/stt/start',{method:'POST'});document.getElementById('sttInfo').textContent=x.state?.message||'STT запущен';refresh()}catch(e){document.getElementById('sttInfo').textContent='Ошибка STT: '+e.message}
+  document.getElementById('sttInfo').textContent='Запускаю STT…';
+  try{
+    const x=await api('/api/stt/start',{method:'POST'});
+    document.getElementById('sttInfo').textContent=x.state?.message||'STT запускается…';
+    refresh();
+  }catch(e){
+    document.getElementById('sttInfo').textContent='Ошибка STT: '+e.message;
+    refresh();
+  }
 }
 async function stopStt(){
   try{await api('/api/stt/stop',{method:'POST'});refresh()}catch(e){alert(e.message)}

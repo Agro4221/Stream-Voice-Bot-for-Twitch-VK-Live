@@ -52,6 +52,16 @@ class VKPlayService:
     def configured(self) -> bool:
         return bool(normalize_channel(self.db.get_setting("vkplay_channel_id", "")))
 
+    def node_command(self) -> str:
+        project_root = BRIDGE_JS.parent.parent.parent
+        local_node = project_root / ".runtime" / "node" / "node.exe"
+        if local_node.exists():
+            return str(local_node)
+        system_node = shutil.which("node")
+        if system_node:
+            return system_node
+        raise RuntimeError("Node.js не найден. Запусти scripts\\install_windows.ps1")
+
     async def start(self):
         if self.running:
             return
@@ -64,11 +74,6 @@ class VKPlayService:
             )
         if not BRIDGE_JS.exists():
             raise RuntimeError("VK Video Live bridge is missing")
-        if shutil.which("node") is None:
-            raise RuntimeError(
-                "Node.js не найден. Запусти scripts\\install_windows.ps1"
-            )
-
         self.running = True
         self.supervisor_task = asyncio.create_task(
             self._supervise(channel),
@@ -123,7 +128,7 @@ class VKPlayService:
 
     async def _spawn(self, channel: str):
         self.proc = await asyncio.create_subprocess_exec(
-            "node",
+            self.node_command(),
             str(BRIDGE_JS),
             channel,
             stdout=asyncio.subprocess.PIPE,

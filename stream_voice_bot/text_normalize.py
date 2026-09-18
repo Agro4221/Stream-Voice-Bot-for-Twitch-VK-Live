@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from num2words import num2words
 
 DIGIT_WORDS = {
@@ -25,7 +26,12 @@ def normalize_for_tts(text: str) -> str:
     if not text:
         return ""
 
-    text = text.replace("ё", "ё")
+    # Normalize Unicode without destroying Ё/ё or combining accent marks.
+    text = unicodedata.normalize("NFC", text)
+
+    # Preserve Russian Ё/ё and common combining stress marks used by TTS text.
+    text = text.replace(" ", " ")
+    text = text.replace("’", "'").replace("“", '"').replace("”", '"').replace("–", "-").replace("—", " - ")
     text = re.sub(r"https?://\S+|www\.\S+", " ссылка ", text, flags=re.I)
     text = re.sub(r"\bdiscord(?:\.gg/\S+)?\b", "дискорд", text, flags=re.I)
 
@@ -74,6 +80,6 @@ def normalize_for_tts(text: str) -> str:
 
     # Drop decorative/control characters, preserving Cyrillic/Latin, digits and
     # normal punctuation. Emojis are intentionally omitted from the spoken text.
-    text = re.sub(r"[^\w\s\u0400-\u04FF.,!?;:()'\"%\-]+", " ", text, flags=re.UNICODE)
+    text = re.sub(r"[^\w\s\u0400-\u04FF\u0300-\u036F.,!?;:()'\"%\-]+", " ", text, flags=re.UNICODE)
     text = re.sub(r"\s+", " ", text).strip()
     return text

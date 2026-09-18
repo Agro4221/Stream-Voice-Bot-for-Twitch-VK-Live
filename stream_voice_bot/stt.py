@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import threading
 import time
 from collections import deque
@@ -25,10 +24,19 @@ class STTConfig:
 
 
 class STTService:
-    def __init__(self, db, on_subtitle: Callable[[dict], None], on_status: Callable[[dict], None]):
+    def __init__(
+        self,
+        db,
+        on_subtitle: Callable[[dict], None],
+        on_status: Callable[[dict], None],
+        get_subtitle_tracks: Callable[[], list[dict]] | None = None,
+        translator=None,
+    ):
         self.db = db
         self.on_subtitle = on_subtitle
         self.on_status = on_status
+        self.get_subtitle_tracks = get_subtitle_tracks or (lambda: [])
+        self.translator = translator
         self.config = STTConfig(
             model_name=db.get_setting("stt_model", "large-v3-turbo"),
             language=db.get_setting("stt_language", "ru"),
@@ -41,14 +49,29 @@ class STTService:
         )
         self.model = None
         self.thread: threading.Thread | None = None
+        self.start_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.audio_q: deque[np.ndarray] = deque()
         self.last_text = ""
+        self.model_loading = False
+        self.message = "STT остановлен"
+        self.last_error = ""
+
+    def _emit(self, **data):
+        with self.lock:
+            if "message" in data and data["message"] is not None:
+                self.message = str(data["message"])
+            if data.get("model_loading") is not None:
+                self.model_loading = bool(data["model_loading"])
+            if "last_error" in data:
+                self.last_error = str(data.get("last_error") or "")
+        self.on_status(data)
 
     def state(self):
         return {
             "running": bool(self.thread and self.thread.is_alive()),
+            "model_loading": bool(self.model_loading),
             "model_loaded": self.model is not None,
             "model": self.config.model_name,
             "language": self.config.language,
@@ -59,6 +82,8 @@ class STTService:
             "beam_size": self.config.beam_size,
             "compute_type": self.config.compute_type,
             "last_text": self.last_text,
+            "message": self.message,
+            "last_error": self.last_error,
         }
 
     def save_config(self, **kwargs):
@@ -80,62 +105,97 @@ class STTService:
                 setattr(self.config, key, value)
                 self.db.set_setting(allowed[key], str(value))
         if model_changed:
-            # A loaded WhisperModel keeps the previous model in memory.
-            # Drop it so the newly selected model is loaded on next STT start.
             self.model = None
-            self.on_status({
-                "running": bool(self.thread and self.thread.is_alive()),
-                "message": "Модель STT изменена; новая модель загрузится при следующем запуске STT.",
-            })
+            self._emit(
+                running=bool(self.thread and self.thread.is_alive()),
+                message="Модель STT изменена; новая модель загрузится при следующем запуске STT.",
+            )
 
     def _load_model(self):
         if self.model is not None:
             return
-        self.on_status({"running": False, "model_loading": True, "message": f"Загрузка STT: {self.config.model_name}..."})
+        self._emit(
+            running=False,
+            model_loading=True,
+            message=f"Загрузка STT: {self.config.model_name}…",
+            last_error="",
+        )
         try:
             self.model = WhisperModel(
                 self.config.model_name,
                 device="cuda",
                 compute_type=self.config.compute_type,
             )
-        except Exception as e:
-            # Keep the user informed and make a CPU fallback available.
-            self.on_status({
-                "running": False,
-                "model_loading": False,
-                "message": f"GPU STT не запустился: {type(e).__name__}: {e}. Пробую CPU int8.",
-            })
-            self.model = WhisperModel(
-                self.config.model_name,
-                device="cpu",
-                compute_type="int8",
+        except Exception as gpu_error:
+            self._emit(
+                running=False,
+                model_loading=True,
+                message=f"GPU STT не запустился: {type(gpu_error).__name__}: {gpu_error}. Пробую CPU int8…",
             )
-        self.on_status({"running": False, "model_loading": False, "model_loaded": True, "message": "STT модель готова"})
+            try:
+                self.model = WhisperModel(
+                    self.config.model_name,
+                    device="cpu",
+                    compute_type="int8",
+                )
+            except Exception as cpu_error:
+                self.model = None
+                self._emit(
+                    running=False,
+                    model_loading=False,
+                    message=f"Ошибка загрузки STT: {type(cpu_error).__name__}: {cpu_error}",
+                    last_error=f"{type(cpu_error).__name__}: {cpu_error}",
+                )
+                raise
+        self._emit(
+            running=False,
+            model_loading=False,
+            model_loaded=True,
+            message="STT модель готова ✓",
+            last_error="",
+        )
 
     def start(self):
-        if self.thread and self.thread.is_alive():
-            return
-        self._load_model()
-        self.stop_event.clear()
-        self.thread = threading.Thread(target=self._run, name="stt-worker", daemon=True)
-        self.thread.start()
-        self.on_status({"running": True, "message": "STT запущен"})
+        with self.lock:
+            if self.thread and self.thread.is_alive():
+                self._emit(running=True, message="STT уже работает")
+                return
+            if self.start_thread and self.start_thread.is_alive():
+                self._emit(model_loading=True, message="STT уже запускается…")
+                return
+            self.stop_event.clear()
+            self.start_thread = threading.Thread(target=self._start_worker, name="stt-start", daemon=True)
+            self.start_thread.start()
+        self._emit(running=False, model_loading=True, message=f"Запуск STT: загрузка {self.config.model_name}…", last_error="")
+
+    def _start_worker(self):
+        try:
+            self._load_model()
+            if self.stop_event.is_set():
+                self._emit(running=False, model_loading=False, message="STT остановлен")
+                return
+            worker = threading.Thread(target=self._run, name="stt-worker", daemon=True)
+            with self.lock:
+                self.thread = worker
+            worker.start()
+            self._emit(running=True, model_loading=False, message="STT запущен ✓", last_error="")
+        except Exception:
+            # _load_model already reported the concrete error.
+            pass
 
     def stop(self):
         self.stop_event.set()
-        self.on_status({"running": False, "message": "STT остановлен"})
+        self._emit(running=False, message="STT остановлен")
 
     def _callback(self, indata, frames, time_info, status):
         if status:
-            self.on_status({"running": True, "message": f"Audio input: {status}"})
-        # Copy because PortAudio reuses the buffer.
+            self._emit(running=True, message=f"Audio input: {status}")
         self.audio_q.append(indata[:, 0].copy())
 
     def _run(self):
         sample_rate = self.config.sample_rate
         chunk_samples = int(sample_rate * self.config.chunk_seconds)
         overlap_samples = int(sample_rate * self.config.overlap_seconds)
-
         try:
             with sd.InputStream(
                 device=self.config.input_device,
@@ -182,21 +242,56 @@ class STTService:
 
                         text = " ".join(texts).strip()
                         if text:
+                            detected_language = getattr(info, "language", self.config.language) or self.config.language
+                            ts = time.time()
                             self.last_text = text
                             self.on_subtitle({
+                                "track_id": "ru" if detected_language.startswith("ru") else detected_language.lower(),
                                 "text": text,
                                 "start": start,
                                 "end": end,
-                                "language": getattr(info, "language", self.config.language),
-                                "timestamp": time.time(),
+                                "language": detected_language,
+                                "timestamp": ts,
                             })
+
+                            tracks = self.get_subtitle_tracks()
+                            if self.translator:
+                                for track in tracks:
+                                    if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
+                                        continue
+                                    target_language = str(track.get("language", "")).strip().lower().split("-")[0]
+                                    if not target_language or target_language == detected_language.lower().split("-")[0]:
+                                        continue
+                                    try:
+                                        translated = self.translator.translate(text, detected_language, target_language)
+                                        if translated:
+                                            self.on_subtitle({
+                                                "track_id": track.get("id", target_language),
+                                                "text": translated,
+                                                "start": start,
+                                                "end": end,
+                                                "language": target_language,
+                                                "timestamp": ts,
+                                            })
+                                    except Exception as e:
+                                        self._emit(
+                                            running=True,
+                                            message=f"Перевод {detected_language} → {target_language}: {type(e).__name__}: {e}",
+                                        )
                     except Exception as e:
-                        self.on_status({
-                            "running": True,
-                            "message": f"STT error: {type(e).__name__}: {e}",
-                        })
+                        self._emit(
+                            running=True,
+                            message=f"STT error: {type(e).__name__}: {e}",
+                        )
         except Exception as e:
-            self.on_status({
-                "running": False,
-                "message": f"Audio input error: {type(e).__name__}: {e}",
-            })
+            self._emit(
+                running=False,
+                model_loading=False,
+                message=f"Ошибка аудиовхода STT: {type(e).__name__}: {e}",
+                last_error=f"{type(e).__name__}: {e}",
+            )
+        finally:
+            with self.lock:
+                self.thread = None
+            if self.stop_event.is_set():
+                self._emit(running=False, model_loading=False, message="STT остановлен")

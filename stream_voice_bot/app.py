@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
 import platform
 import shutil
 import threading
 import time
+import urllib.request
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,6 +22,7 @@ from .db import Database
 from .models import QueueItem
 from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
+from .translator import TranslationService
 from .twitch import TwitchService
 from .vkplay import VKPlayService
 from .secrets import SecretStore
@@ -37,9 +42,9 @@ class RepeatManyRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     normal_speaker: str | None = None
-    normal_volume: float | None = Field(default=None, ge=0, le=2.5)
+    normal_volume: float | None = Field(default=None, ge=-12, le=12)
     loud_speaker: str | None = None
-    loud_volume: float | None = Field(default=None, ge=0, le=2.5)
+    loud_volume: float | None = Field(default=None, ge=-12, le=12)
     speed: float | None = Field(default=None, ge=0.5, le=1.5)
     max_chars: int | None = Field(default=None, ge=1, le=1000)
     output_device: int | None = None
@@ -80,47 +85,91 @@ class STTConfigRequest(BaseModel):
     compute_type: str | None = None
 
 
+def _is_usable_model(path: Path) -> bool:
+    try:
+        if not path.is_file() or path.stat().st_size <= 1_000_000:
+            return False
+        with path.open("rb") as fh:
+            return bool(fh.read(16))
+    except OSError:
+        return False
+
+
 def find_model(root: Path) -> Path | None:
     model_dir = root / "models"
     preferred = model_dir / "v5_ru.pt"
     legacy = root / "v5_ru.pt"
-    try:
-        if preferred.is_file() and preferred.stat().st_size > 1_000_000:
-            return preferred.resolve()
-        if legacy.is_file() and legacy.stat().st_size > 1_000_000:
-            model_dir.mkdir(parents=True, exist_ok=True)
-            if not preferred.exists() or preferred.stat().st_size != legacy.stat().st_size:
-                shutil.copy2(legacy, preferred)
-            return preferred.resolve()
-    except OSError:
-        pass
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    if _is_usable_model(preferred):
+        return preferred.resolve()
+    if _is_usable_model(legacy):
+        try:
+            shutil.copy2(legacy, preferred)
+        except OSError:
+            return legacy.resolve()
+        return preferred.resolve() if _is_usable_model(preferred) else legacy.resolve()
     return None
 
 
+def install_silero_model(root: Path, force: bool = False) -> Path:
+    model_dir = root / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    target = model_dir / "v5_ru.pt"
+    if not force and _is_usable_model(target):
+        return target.resolve()
+
+    partial = model_dir / "v5_ru.pt.part"
+    url = "https://models.silero.ai/models/tts/ru/v5_ru.pt"
+    try:
+        if partial.exists():
+            partial.unlink()
+    except OSError:
+        pass
+    urllib.request.urlretrieve(url, partial)
+    if not _is_usable_model(partial):
+        try:
+            partial.unlink()
+        except OSError:
+            pass
+        raise RuntimeError("Silero model download failed or returned an invalid file")
+    partial.replace(target)
+    return target.resolve()
+
+
 def create_app(root: Path) -> FastAPI:
-    app = FastAPI(title="Stream Voice Bot", version="1.0.0")
+    app = FastAPI(title="Stream Voice Bot", version="1.0.5")
     data_dir = root / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
 
-    model_path = find_model(root) or (root / "v5_ru.pt")
-    db.set_setting("model_path", str(model_path))
+    model_path = find_model(root) or (root / "models" / "v5_ru.pt")
+    db.set_setting("model_path", "models/v5_ru.pt")
 
     normal_speaker = db.get_setting("normal_speaker", "xenia")
-    normal_volume = float(db.get_setting("normal_volume", "1.0"))
+    normal_volume = float(db.get_setting("normal_volume", "0.0"))
     loud_speaker = db.get_setting("loud_speaker", normal_speaker)
-    loud_volume = float(db.get_setting("loud_volume", "1.8"))
+    loud_volume = float(db.get_setting("loud_volume", "6.0"))
+    # Migrate old 0..2.5 multiplier values once (legacy UI).
+    if 0 <= normal_volume <= 2.5 and db.get_setting("volume_format_migrated") != "1":
+        normal_volume = round(20.0 * math.log10(max(normal_volume, 1e-6)), 2) if normal_volume > 0 else -12.0
+    if 0 <= loud_volume <= 2.5 and db.get_setting("volume_format_migrated") != "1":
+        loud_volume = round(20.0 * math.log10(max(loud_volume, 1e-6)), 2) if loud_volume > 0 else -12.0
+    if db.get_setting("volume_format_migrated") != "1":
+        db.set_setting("normal_volume", str(normal_volume))
+        db.set_setting("loud_volume", str(loud_volume))
+        db.set_setting("volume_format_migrated", "1")
     speed = float(db.get_setting("speed", "1.0"))
     max_chars = int(db.get_setting("max_chars", "300"))
     output_device = int(db.get_setting("output_device")) if db.get_setting("output_device") else None
 
     profiles = {
-        "normal": {"speaker": normal_speaker, "volume": normal_volume},
-        "loud": {"speaker": loud_speaker, "volume": loud_volume},
+        "normal": {"speaker": normal_speaker, "volume_db": normal_volume},
+        "loud": {"speaker": loud_speaker, "volume_db": loud_volume},
     }
 
     player = AudioPlayer(PlayerSettings(
         device=output_device,
-        volume=normal_volume,
+        volume_db=normal_volume,
         speed=speed,
         speaker=normal_speaker,
     ))
@@ -132,24 +181,40 @@ def create_app(root: Path) -> FastAPI:
         model=model,
         player=player,
         speaker_getter=lambda: profiles[active_profile["name"]]["speaker"],
-        volume_setter=lambda: profiles[active_profile["name"]]["volume"],
+        volume_setter=lambda: profiles[active_profile["name"]]["volume_db"],
         history_db=db,
         max_chars_getter=lambda: int(db.get_setting("max_chars", "300")),
     )
     queue._profile_speaker_getter = lambda name: profiles[name]["speaker"]
-    queue._profile_volume_getter = lambda name: profiles[name]["volume"]
+    queue._profile_volume_getter = lambda name: profiles[name]["volume_db"]
 
     subtitle_lock = threading.Lock()
+    default_subtitle_tracks = [
+        {"id": "ru", "name": "Русский", "language": "ru", "enabled": True, "mode": "source"},
+        {"id": "en", "name": "English", "language": "en", "enabled": False, "mode": "translate"},
+    ]
+    try:
+        subtitle_tracks = json.loads(db.get_setting("subtitle_tracks", json.dumps(default_subtitle_tracks, ensure_ascii=False)))
+        if not isinstance(subtitle_tracks, list) or not subtitle_tracks:
+            subtitle_tracks = default_subtitle_tracks
+        for track in subtitle_tracks:
+            if track.get("mode") == "whisper-translate":
+                track["mode"] = "translate"
+    except Exception:
+        subtitle_tracks = default_subtitle_tracks
     subtitle_state = {
-        "text": "",
-        "timestamp": 0,
-        "language": "",
+        str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru")}
+        for t in subtitle_tracks
     }
+
+    translation_status = {"message": "Перевод субтитров не настроен"}
+    model_status = {"installing": False, "message": ""}
+    translator = TranslationService(lambda data: translation_status.update(data))
 
     secret_store = SecretStore()
     twitch_status = {
         "connected": False,
-        "configured": bool(db.get_setting("twitch_client_id", "") and secret_store.get("twitch_client_secret")),
+        "configured": bool(db.get_setting("twitch_client_id", "")),
         "message": "Не подключён",
         "login": db.get_setting("twitch_login", ""),
     }
@@ -160,6 +225,8 @@ def create_app(root: Path) -> FastAPI:
         "message": "Не настроен",
     }
 
+    device_task: asyncio.Task | None = None
+
     async def schedule(coro):
         try:
             loop = asyncio.get_running_loop()
@@ -168,12 +235,25 @@ def create_app(root: Path) -> FastAPI:
             pass
 
     def on_subtitle(data: dict):
+        explicit_track = data.get("track_id")
         with subtitle_lock:
-            subtitle_state.update({
-                "text": data.get("text", ""),
-                "timestamp": data.get("timestamp", time.time()),
-                "language": data.get("language", ""),
-            })
+            if explicit_track and explicit_track != "ru" and explicit_track in subtitle_state:
+                subtitle_state[explicit_track].update({
+                    "text": data.get("text", ""),
+                    "timestamp": data.get("timestamp", time.time()),
+                    "language": data.get("language", explicit_track),
+                })
+                return
+            # Default/source track gets the original STT text.
+            source_tracks = [t for t in subtitle_tracks if t.get("enabled", True) and t.get("mode", "source") == "source"]
+            for t in source_tracks or [{"id": "ru", "language": data.get("language", "ru")}]:
+                tid = str(t.get("id", "ru"))
+                subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": ""})
+                subtitle_state[tid].update({
+                    "text": data.get("text", ""),
+                    "timestamp": data.get("timestamp", time.time()),
+                    "language": data.get("language", t.get("language", "ru")),
+                })
 
     def on_twitch_status(data: dict):
         twitch_status.update(data)
@@ -264,7 +344,7 @@ def create_app(root: Path) -> FastAPI:
 
     twitch = TwitchService(db, on_twitch_chat, on_redemption, on_twitch_status)
     vkplay = VKPlayService(db, on_vk_chat, on_vk_status)
-    stt = STTService(db, on_subtitle, lambda data: setattr(app.state, "stt_status", data))
+    stt = STTService(db, on_subtitle, lambda data: setattr(app.state, "stt_status", data), lambda: subtitle_tracks, translator=translator)
 
     # Completion callback is kept lightweight. Twitch fulfillment polls DB.
     app.state.db = db
@@ -277,6 +357,7 @@ def create_app(root: Path) -> FastAPI:
     app.state.stt = stt
     app.state.twitch_status = twitch_status
     app.state.subtitle_state = subtitle_state
+    app.state.subtitle_tracks = subtitle_tracks
 
     @app.on_event("startup")
     async def startup():
@@ -295,6 +376,10 @@ def create_app(root: Path) -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown():
+        nonlocal device_task
+        if device_task and not device_task.done():
+            device_task.cancel()
+        device_task = None
         await twitch.stop()
         await vkplay.stop()
         stt.stop()
@@ -317,6 +402,13 @@ def create_app(root: Path) -> FastAPI:
     async def subtitles():
         return html_no_cache(root / "stream_voice_bot" / "web" / "subtitles.html")
 
+    @app.get("/subtitles/{track_id}")
+    async def subtitles_track(track_id: str):
+        track_id = track_id.strip().lower()
+        if not track_id or not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
+            raise HTTPException(400, "Invalid subtitle track id")
+        return html_no_cache(root / "stream_voice_bot" / "web" / "subtitles.html")
+
     @app.get("/api/state")
     async def state():
         mp = find_model(root)
@@ -330,11 +422,13 @@ def create_app(root: Path) -> FastAPI:
             pass
         stt_status = getattr(app.state, "stt_status", {})
         return {
-            "app": {"name": "Stream Voice Bot", "version": "1.0.0"},
+            "app": {"name": "Stream Voice Bot", "version": "1.0.4"},
             "model": {
-                "path": str(model_path),
+                "path": "models/v5_ru.pt",
                 "exists": model_exists,
                 "loaded": model.model is not None,
+                "installing": bool(model_status.get("installing")),
+                "message": model_status.get("message", ""),
             },
             "queue": queue.state(),
             "profiles": profiles,
@@ -359,6 +453,8 @@ def create_app(root: Path) -> FastAPI:
             },
             "stt": {**stt.state(), **stt_status},
             "subtitle": sub,
+            "subtitle_tracks": subtitle_tracks,
+            "translation": translation_status,
             "settings": {
                 "speed": float(db.get_setting("speed", "1.0")),
                 "max_chars": int(db.get_setting("max_chars", "300")),
@@ -399,11 +495,33 @@ def create_app(root: Path) -> FastAPI:
         return {"ok": True, "original": req.text, "normalized": model.normalize_preview(req.text)}
 
     @app.post("/api/audio/test")
-    async def audio_test():
-        result = player.test_tone()
+    async def audio_test(profile: str = "normal"):
+        if profile not in profiles:
+            raise HTTPException(400, "Unknown profile")
+        result = player.test_tone(volume_db=profiles[profile]["volume_db"])
         if result != "finished":
             raise HTTPException(status_code=500, detail=player.last_error or "Audio test failed")
         return {"ok": True, "device": player.last_device, "sample_rate": player.last_sample_rate}
+
+    @app.post("/api/model/install")
+    async def model_install(force: bool = False):
+        nonlocal model_path
+        try:
+            model_status["installing"] = True
+            model_status["message"] = "Скачивание/проверка модели…"
+            target = await asyncio.to_thread(install_silero_model, root, force)
+            model_path = target
+            with model.lock:
+                model.model_path = target
+                model.model = None
+            db.set_setting("model_path", "models/v5_ru.pt")
+            model_status["installing"] = False
+            model_status["message"] = "Модель Silero готова ✓"
+            return {"ok": True, "path": "models/v5_ru.pt"}
+        except Exception as e:
+            model_status["installing"] = False
+            model_status["message"] = f"Ошибка: {type(e).__name__}: {e}"
+            raise HTTPException(500, f"Silero model setup failed: {type(e).__name__}: {e}") from e
 
     @app.post("/api/settings")
     async def update_settings(req: SettingsRequest):
@@ -415,7 +533,8 @@ def create_app(root: Path) -> FastAPI:
             profiles["normal"]["speaker"] = req.normal_speaker
         if req.normal_volume is not None:
             db.set_setting("normal_volume", str(req.normal_volume))
-            profiles["normal"]["volume"] = req.normal_volume
+            profiles["normal"]["volume_db"] = req.normal_volume
+            player.settings.volume_db = req.normal_volume
         if req.loud_speaker is not None:
             if req.loud_speaker not in supported:
                 raise HTTPException(400, "Unsupported loud speaker")
@@ -423,7 +542,7 @@ def create_app(root: Path) -> FastAPI:
             profiles["loud"]["speaker"] = req.loud_speaker
         if req.loud_volume is not None:
             db.set_setting("loud_volume", str(req.loud_volume))
-            profiles["loud"]["volume"] = req.loud_volume
+            profiles["loud"]["volume_db"] = req.loud_volume
         if req.speed is not None:
             db.set_setting("speed", str(req.speed))
             player.settings.speed = req.speed
@@ -540,19 +659,13 @@ def create_app(root: Path) -> FastAPI:
                 ) from e
             saved_secret = new_secret
 
-        if not saved_secret:
-            raise HTTPException(
-                400,
-                "Client Secret не сохранён. Введи его один раз и нажми «Сохранить Twitch».",
-            )
-
         db.set_setting("twitch_client_id", req.client_id.strip())
         db.set_setting("twitch_redirect_uri", req.redirect_uri.strip())
-        twitch_status["configured"] = True
+        twitch_status["configured"] = bool(req.client_id.strip())
         return {
             "ok": True,
-            "secret_saved": True,
-            "message": "Client Secret сохранён. Повторно вводить его не нужно.",
+            "secret_saved": bool(saved_secret),
+            "message": "Twitch Client ID сохранён. Для нового подключения Client Secret больше не нужен — используем Device Code Flow.",
         }
 
     @app.get("/api/twitch/config")
@@ -573,6 +686,35 @@ def create_app(root: Path) -> FastAPI:
             "ok": True,
             "secret_saved": True,
             "message": "Twitch Client Secret доступен из защищённого локального хранилища.",
+        }
+
+    @app.post("/api/twitch/device/start")
+    async def twitch_device_start():
+        nonlocal device_task
+        try:
+            payload = await twitch.start_device_flow()
+            if device_task and not device_task.done():
+                device_task.cancel()
+            device_task = asyncio.create_task(
+                twitch.finish_device_flow(
+                    payload.get("device_code", ""),
+                    int(payload.get("interval", 5)),
+                    int(payload.get("expires_in", 1800)),
+                ),
+                name="twitch-device-flow",
+            )
+            return payload
+        except Exception as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/twitch/device/status")
+    async def twitch_device_status():
+        return {
+            "ok": True,
+            "pending": bool(device_task and not device_task.done()),
+            "authorized": bool(twitch.access_token()),
+            "connected": bool(twitch.connected),
+            "message": twitch_status.get("message", ""),
         }
 
     @app.get("/auth/twitch/start")
@@ -711,6 +853,52 @@ def create_app(root: Path) -> FastAPI:
     async def vkplay_stop():
         await vkplay.stop()
         return {"ok": True}
+
+    # ---- Subtitles ----
+    @app.get("/api/subtitles/tracks")
+    async def subtitle_tracks_state():
+        return {"ok": True, "tracks": subtitle_tracks}
+
+    @app.post("/api/subtitles/tracks")
+    async def subtitle_tracks_update(req: dict):
+        nonlocal subtitle_tracks
+        tracks = req.get("tracks")
+        if not isinstance(tracks, list) or not tracks or len(tracks) > 12:
+            raise HTTPException(400, "Нужно от 1 до 12 дорожек субтитров")
+        clean=[]
+        seen=set()
+        for raw in tracks:
+            tid=str(raw.get("id", "")).strip().lower()
+            name=str(raw.get("name", tid)).strip()[:64]
+            lang=str(raw.get("language", "ru")).strip().lower()[:16]
+            mode=str(raw.get("mode", "source")).strip()
+            if not re.fullmatch(r"[a-z0-9_-]{1,32}", tid) or tid in seen:
+                raise HTTPException(400, f"Неверный или повторяющийся ID дорожки: {tid}")
+            if mode == "whisper-translate":
+                mode = "translate"
+            if mode not in {"source", "translate"}:
+                mode = "source"
+            seen.add(tid)
+            clean.append({"id": tid, "name": name or tid, "language": lang or "ru", "enabled": bool(raw.get("enabled", True)), "mode": mode})
+        subtitle_tracks = clean
+        db.set_setting("subtitle_tracks", json.dumps(subtitle_tracks, ensure_ascii=False))
+        with subtitle_lock:
+            for t in subtitle_tracks:
+                subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+            stale = [k for k in subtitle_state if k not in {t["id"] for t in subtitle_tracks}]
+            for k in stale:
+                subtitle_state.pop(k, None)
+        source_language = db.get_setting("stt_language", "ru") or "ru"
+        translation_status["message"] = "Подготовка переводчиков…"
+        asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, clean))
+        return {"ok": True, "tracks": subtitle_tracks}
+
+    @app.post("/api/subtitles/prepare")
+    async def subtitles_prepare():
+        source_language = db.get_setting("stt_language", "ru") or "ru"
+        translation_status["message"] = "Подготовка переводчиков…"
+        asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, subtitle_tracks))
+        return {"ok": True, "message": "Подготовка языковых пакетов запущена в фоне."}
 
     # ---- STT ----
     @app.post("/api/stt/config")

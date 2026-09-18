@@ -25,6 +25,8 @@ class SileroV5:
         self.model_path = model_path
         self.device = torch.device(device)
         self.model = None
+        self._model_importer = None
+        self._model_file = None
         self.lock = threading.Lock()
 
     def load(self):
@@ -33,7 +35,21 @@ class SileroV5:
                 return
             if not self.model_path.exists():
                 raise FileNotFoundError(f"Silero model not found: {self.model_path}")
-            self.model = PackageImporter(str(self.model_path)).load_pickle("tts_models", "model")
+            # Windows/PyTorch's native file reader can fail on paths with
+            # non-ASCII characters even when Python can read the same file.
+            # PackageImporter accepts a seekable binary file object, so pass
+            # the already-open Python file instead of a Unicode path. Keep the
+            # file and importer alive for as long as the model is in use.
+            model_file = self.model_path.open("rb")
+            try:
+                importer = PackageImporter(model_file)
+                model = importer.load_pickle("tts_models", "model")
+            except Exception:
+                model_file.close()
+                raise
+            self._model_file = model_file
+            self._model_importer = importer
+            self.model = model
             self.model.to(self.device)
 
     def generate(self, text: str, speaker: str = "xenia", sample_rate: int = 48000) -> np.ndarray:
@@ -78,7 +94,7 @@ class SileroV5:
 @dataclass
 class PlayerSettings:
     device: int | None = None
-    volume: float = 1.0
+    volume_db: float = 0.0
     speed: float = 1.0
     speaker: str = "xenia"
     sample_rate: int = 48000
@@ -137,22 +153,34 @@ class AudioPlayer:
 
         return info, target_rate
 
-    def _prepare(self, audio: np.ndarray, source_rate: int, target_rate: int, volume: float) -> np.ndarray:
+    def _prepare(self, audio: np.ndarray, source_rate: int, target_rate: int, volume_db: float) -> np.ndarray:
         audio = np.asarray(audio, dtype=np.float32)
         speed = min(1.5, max(0.5, self.settings.speed))
         if abs(speed - 1.0) > 1e-3 and len(audio) > 100:
             audio = resample_poly(audio, 100, max(1, int(round(100 / speed)))).astype(np.float32)
         if source_rate != target_rate and len(audio) > 10:
             audio = resample_poly(audio, target_rate, source_rate).astype(np.float32)
-        audio *= min(2.5, max(0.0, float(volume)))
-        return np.clip(np.tanh(audio / 0.95) * 0.95, -0.98, 0.98).astype(np.float32)
+        # Stable, human-friendly volume control: normalize the generated clip
+        # to a predictable peak, then apply a real dB gain. Finally use a very
+        # simple peak limiter instead of tanh, so +dB settings remain audible.
+        peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+        if peak > 1e-6:
+            audio = audio * (0.50 / peak)  # about -6 dBFS before profile gain; leaves headroom for the slider
+        gain = float(10.0 ** (float(volume_db) / 20.0))
+        audio = audio * gain
+        # Soft-limit only extreme peaks; do not rescale the whole clip to a
+        # common peak after applying the user's gain, otherwise the slider
+        # appears to do nothing.
+        if len(audio):
+            audio = np.tanh(audio / 0.95) * 0.95
+        return np.clip(audio, -0.95, 0.95).astype(np.float32)
 
-    def play(self, audio: np.ndarray, sample_rate: int, volume: float = 1.0) -> str:
+    def play(self, audio: np.ndarray, sample_rate: int, volume_db: float = 0.0) -> str:
         self.stop_event.clear(); self.skip_event.clear(); self.last_error = None
         try:
             info, target_rate = self._resolve_output_device()
             self.last_sample_rate = target_rate
-            audio = self._prepare(audio, sample_rate, target_rate, volume)
+            audio = self._prepare(audio, sample_rate, target_rate, volume_db)
             chunk = max(256, int(target_rate * self.settings.chunk_ms / 1000))
 
             # VB-CABLE/OBS path is stereo; duplicate mono Silero output into
@@ -191,12 +219,15 @@ class AudioPlayer:
             self.last_sample_rate = target_rate
             t = np.arange(int(target_rate * duration), dtype=np.float32) / target_rate
             mono = (0.18 * np.sin(2*np.pi*frequency*t)).astype(np.float32)
-            mono *= min(2.5, max(0.0, float(self.settings.volume)))
+            effective_volume_db = self.settings.volume_db if volume_db is None else float(volume_db)
+            gain = float(10.0 ** (effective_volume_db / 20.0))
+            mono *= gain
+            mono = np.tanh(mono / 0.95) * 0.95
             audio_stereo = np.column_stack((mono, mono)).astype(np.float32)
             chunk = max(256, int(target_rate * self.settings.chunk_ms / 1000))
             with sd.OutputStream(device=self.settings.device, samplerate=target_rate, channels=2, dtype="float32", blocksize=chunk, latency="low") as stream:
                 self._stream = stream
-                for pos in range(0,len(audio),chunk):
+                for pos in range(0, len(mono), chunk):
                     if self.stop_event.is_set(): return "stopped"
                     stream.write(audio_stereo[pos:pos+chunk])
             return "finished"
@@ -218,7 +249,7 @@ class AudioPlayer:
 class TTSQueue:
     def __init__(self, model, player, speaker_getter, history_db, max_chars_getter, volume_setter=None):
         self.model=model; self.player=player; self.speaker_getter=speaker_getter
-        self.volume_setter=volume_setter or (lambda: 1.0); self.db=history_db; self.max_chars_getter=max_chars_getter
+        self.volume_setter=volume_setter or (lambda: 0.0); self.db=history_db; self.max_chars_getter=max_chars_getter
         self.queue=Queue(); self.pending=[]; self.current=None; self.running=True
         self.lock=threading.RLock(); self.on_change=lambda: None
         self.thread=threading.Thread(target=self._worker, name="tts-worker", daemon=True); self.thread.start()
@@ -242,7 +273,7 @@ class TTSQueue:
             result="finished"; started=time.monotonic()
             try:
                 audio=self.model.generate(item.text, speaker=self._profile_speaker(profile), sample_rate=48000)
-                result=self.player.play(audio,48000,volume=self._profile_volume(profile))
+                result=self.player.play(audio,48000,volume_db=self._profile_volume(profile))
             except Exception as e:
                 self.player.last_error=f"{type(e).__name__}: {e}"; result="error"
             self.db.set_history_status(hid,result,round(time.monotonic()-started,3))
