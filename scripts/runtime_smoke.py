@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 from unittest.mock import Mock
 
+import httpx
 import numpy as np
 
 
@@ -26,7 +27,6 @@ def main() -> None:
     import stream_voice_bot.tts as tts_module
     import stream_voice_bot.vkplay as vkplay_module
     from stream_voice_bot.models import QueueItem
-    from fastapi.testclient import TestClient
 
     assert app_module._read_app_version(ROOT) == version
     assert twitch_module.TwitchService.REQUIRED_SCOPES == [
