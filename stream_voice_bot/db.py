@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -13,10 +14,14 @@ class Database:
         self.lock = threading.Lock()
         self._init()
 
+    @contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.path, timeout=10)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def _init(self):
         with self.lock, self._connect() as conn:
