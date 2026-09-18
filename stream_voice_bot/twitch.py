@@ -499,9 +499,12 @@ class TwitchService:
 
                 elif msg_type == "revocation":
                     self.connected = False
+                    # Do not let the outer reconnect loop immediately create
+                    # another session with a revoked subscription/token.
+                    self.running = False
                     self.on_status({
                         "connected": False,
-                        "message": "EventSub subscription revoked",
+                        "message": "EventSub subscription revoked; Twitch must be reauthorized",
                         "raw": msg,
                     })
                     return
