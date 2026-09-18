@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import math
@@ -157,6 +158,7 @@ def create_app(root: Path) -> FastAPI:
 
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
+    db.prune_history(max_rows=50000)
 
     normal_speaker = db.get_setting("normal_speaker", "xenia")
     normal_volume = float(db.get_setting("normal_volume", "0.0"))
@@ -806,7 +808,7 @@ def create_app(root: Path) -> FastAPI:
                 "<h2>Готово.</h2><p>Twitch подключён. Можно закрыть это окно и вернуться в админку.</p>"
             )
         except Exception as e:
-            safe_error = re.sub(r"[^A-Za-z0-9А-Яа-яЁё _.,:;()/_-]", "", str(e))[:500]
+            safe_error = html.escape(str(e), quote=True)[:500]
             return HTMLResponse(
                 f"<h2>Ошибка Twitch</h2><pre>{safe_error}</pre>",
                 status_code=500,
