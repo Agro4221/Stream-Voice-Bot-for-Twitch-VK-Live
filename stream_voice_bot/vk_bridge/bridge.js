@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as VKPLModule from "vklive-message-client";
 
 const VKPLMessageClient =
@@ -45,7 +46,16 @@ function emitChat(ctx) {
   const rawId =
     ctx?.message?.id ??
     ctx?.message?.rawId ??
-    `${username}|${Date.now()}|${text}`;
+    createHash('sha256')
+      .update(JSON.stringify({
+        message: ctx?.message ?? null,
+        user: {
+          id: ctx?.user?.id ?? null,
+          nick: ctx?.user?.nick ?? username
+        }
+      }))
+      .digest('hex')
+      .slice(0, 32);
 
   process.stdout.write(JSON.stringify({
     type: 'chat',
@@ -84,6 +94,53 @@ async function main() {
   emitStatus(`Connecting to https://live.vkvideo.ru/${channel}`);
   await client.connect();
   emitStatus(`VK Video Live connected: ${channel}`);
+
+  // The upstream client retries only after a WebSocket close. A socket can
+  // remain open while the connection is effectively dead, especially during
+  // long streams. Use the underlying ws object as a watchdog and let the
+  // Python supervisor restart the whole bridge when the socket stays stuck.
+  let trackedSocket = null;
+  let lastPongAt = 0;
+  let nonOpenSince = null;
+  setInterval(() => {
+    try {
+      const socket = client?.socketManager?.socket;
+      if (!socket) return;
+
+      if (socket !== trackedSocket) {
+        trackedSocket = socket;
+        lastPongAt = Date.now();
+        nonOpenSince = null;
+        if (typeof socket.on === 'function') {
+          socket.on('pong', () => {
+            if (socket === trackedSocket) lastPongAt = Date.now();
+          });
+        }
+      }
+
+      const OPEN = 1;
+      if (socket.readyState === OPEN) {
+        nonOpenSince = null;
+        if (typeof socket.ping === 'function') {
+          socket.ping();
+        }
+        if (Date.now() - lastPongAt > 90000) {
+          console.error('[watchdog] VK WebSocket opened but no pong for >90s; restarting bridge');
+          process.exit(20);
+        }
+        return;
+      }
+
+      if (nonOpenSince === null) nonOpenSince = Date.now();
+      if (Date.now() - nonOpenSince > 90000) {
+        console.error('[watchdog] VK WebSocket not open for >90s; restarting bridge');
+        process.exit(21);
+      }
+    } catch (err) {
+      console.error('[watchdog] error:', String(err?.stack || err));
+      process.exit(22);
+    }
+  }, 30000);
 
   // Keep the process alive; the client owns the WebSocket.
   await new Promise(() => {});
