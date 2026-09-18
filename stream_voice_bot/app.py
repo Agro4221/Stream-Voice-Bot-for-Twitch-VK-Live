@@ -953,7 +953,10 @@ def create_app(root: Path) -> FastAPI:
         if overlap >= chunk:
             raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
-        stt.save_config(**kwargs)
+        try:
+            stt.save_config(**kwargs)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
         return {"ok": True, "state": stt.state()}
 
     @app.post("/api/stt/start")
