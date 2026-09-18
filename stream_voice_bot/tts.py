@@ -286,7 +286,10 @@ class TTSQueue:
                 except Exception as e:
                     self.player.last_error = f"history-start: {type(e).__name__}: {e}"
 
-                self.on_change()
+                try:
+                    self.on_change()
+                except Exception as e:
+                    self.player.last_error = f"queue-state: {type(e).__name__}: {e}"
 
                 try:
                     audio = self.model.generate(
@@ -315,6 +318,8 @@ class TTSQueue:
                     self.current = None
                 try:
                     self.on_change()
+                except Exception as e:
+                    self.player.last_error = f"queue-state: {type(e).__name__}: {e}"
                 finally:
                     self.queue.task_done()
 
