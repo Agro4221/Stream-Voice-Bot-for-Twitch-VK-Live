@@ -30,6 +30,20 @@ jobs:
         shell: pwsh
         run: |
           python -c "from pathlib import Path; assert Path('requirements.txt').exists()"
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          $files = @("scripts/install_windows.ps1", "scripts/make_portable_release.ps1", "scripts/publish_github.ps1")
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { continue }
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Host
+              exit 1
+            }
+          }
       - name: Secret scan
         shell: pwsh
         run: |
@@ -72,7 +86,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: stream_voice_bot/vk_bridge/package-lock.json
       - name: Install bridge
