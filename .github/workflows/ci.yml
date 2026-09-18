@@ -18,10 +18,14 @@ jobs:
         shell: pwsh
         run: |
           python -m compileall -q stream_voice_bot
-      - name: Import check
+      - name: Core import check
         shell: pwsh
         run: |
-          python -c "import stream_voice_bot; import stream_voice_bot.app; import stream_voice_bot.db; import stream_voice_bot.tts; import stream_voice_bot.stt"
+          python -c "import stream_voice_bot.db; import stream_voice_bot.models; import stream_voice_bot.text_normalize"
+      - name: Stability tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" -v
       - name: Dependency manifest check
         shell: pwsh
         run: |
