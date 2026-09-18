@@ -137,8 +137,17 @@ def install_silero_model(root: Path, force: bool = False) -> Path:
     return target.resolve()
 
 
+def _read_app_version(root: Path) -> str:
+    try:
+        value = (root / "VERSION").read_text(encoding="utf-8").strip()
+        return value or "0.0.0-dev"
+    except OSError:
+        return "0.0.0-dev"
+
+
 def create_app(root: Path) -> FastAPI:
-    app = FastAPI(title="Stream Voice Bot", version="1.0.5")
+    app_version = _read_app_version(root)
+    app = FastAPI(title="Stream Voice Bot", version=app_version)
     data_dir = root / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
 
@@ -263,7 +272,8 @@ def create_app(root: Path) -> FastAPI:
         if not text:
             return
         message_id = event.get("message_id")
-        if message_id and not db.claim_event(message_id):
+        dedupe_id = event.get("_eventsub_message_id") or message_id
+        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
         username = event.get("chatter_user_name", "unknown")
         db.save_chat_message(
@@ -302,6 +312,11 @@ def create_app(root: Path) -> FastAPI:
     def on_redemption(event: dict):
         # Only process new/unfulfilled redemptions.
         if (event.get("status") or "").lower() not in {"", "unfulfilled"}:
+            return
+        redemption_id = event.get("id", "")
+        eventsub_id = event.get("_eventsub_message_id")
+        dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
+        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
         reward = event.get("reward", {}) or {}
         reward_id = reward.get("id", "")
@@ -428,7 +443,7 @@ def create_app(root: Path) -> FastAPI:
             pass
         stt_status = getattr(app.state, "stt_status", {})
         return {
-            "app": {"name": "Stream Voice Bot", "version": "1.0.4"},
+            "app": {"name": "Stream Voice Bot", "version": app_version},
             "model": {
                 "path": "models/v5_ru.pt",
                 "exists": model_exists,
@@ -701,14 +716,21 @@ def create_app(root: Path) -> FastAPI:
             payload = await twitch.start_device_flow()
             if device_task and not device_task.done():
                 device_task.cancel()
-            device_task = asyncio.create_task(
-                twitch.finish_device_flow(
-                    payload.get("device_code", ""),
-                    int(payload.get("interval", 5)),
-                    int(payload.get("expires_in", 1800)),
-                ),
-                name="twitch-device-flow",
-            )
+            async def run_device_flow():
+                try:
+                    await twitch.finish_device_flow(
+                        payload.get("device_code", ""),
+                        int(payload.get("interval", 5)),
+                        int(payload.get("expires_in", 1800)),
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    twitch_status["connected"] = False
+                    twitch_status["message"] = f"Device Flow: {type(e).__name__}: {e}"
+                    twitch_status["device_pending"] = False
+
+                device_task = asyncio.create_task(run_device_flow(), name="twitch-device-flow")
             return payload
         except Exception as e:
             raise HTTPException(400, str(e))
@@ -732,7 +754,8 @@ def create_app(root: Path) -> FastAPI:
     @app.get("/auth/twitch/callback", response_class=HTMLResponse)
     async def twitch_callback(code: str | None = None, state: str | None = None, error: str | None = None):
         if error:
-            return HTMLResponse(f"<h2>Twitch authorization failed</h2><p>{error}</p>", status_code=400)
+            safe_error = re.sub(r"[^A-Za-z0-9 _.-]", "", error)[:200]
+            return HTMLResponse(f"<h2>Twitch authorization failed</h2><p>{safe_error}</p>", status_code=400)
         if not code or not state:
             return HTMLResponse("<h2>Missing Twitch OAuth code/state.</h2>", status_code=400)
         try:
@@ -742,8 +765,9 @@ def create_app(root: Path) -> FastAPI:
                 "<h2>Готово.</h2><p>Twitch подключён. Можно закрыть это окно и вернуться в админку.</p>"
             )
         except Exception as e:
+            safe_error = re.sub(r"[^A-Za-z0-9А-Яа-яЁё _.,:;()/_-]", "", str(e))[:500]
             return HTMLResponse(
-                f"<h2>Ошибка Twitch</h2><pre>{str(e)}</pre>",
+                f"<h2>Ошибка Twitch</h2><pre>{safe_error}</pre>",
                 status_code=500,
             )
 
@@ -909,6 +933,12 @@ def create_app(root: Path) -> FastAPI:
     # ---- STT ----
     @app.post("/api/stt/config")
     async def stt_config(req: STTConfigRequest):
+        current_chunk = stt.config.chunk_seconds
+        current_overlap = stt.config.overlap_seconds
+        chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
+        overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
+        if overlap >= chunk:
+            raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         stt.save_config(**kwargs)
         return {"ok": True, "state": stt.state()}
