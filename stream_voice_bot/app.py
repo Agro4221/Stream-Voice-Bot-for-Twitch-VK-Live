@@ -26,7 +26,7 @@ from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
 from .translator import TranslationService
 from .twitch import TwitchService
-from .vkplay import VKPlayService, parse_vk_reward_announcement
+from .vkplay import VKPlayService
 from .secrets import SecretStore
 
 
@@ -309,25 +309,12 @@ def create_app(root: Path) -> FastAPI:
             return
 
         username = (event.get("username") or "unknown").strip() or "unknown"
-        reward = parse_vk_reward_announcement(text)
-        if reward:
-            # VK readonly chat clients receive a human-readable system notice
-            # for some channel rewards instead of the structured reward event.
-            # Feed only the actual viewer input to TTS/history.
-            username = reward["username"]
-            text = reward["text"]
-        elif username.casefold() == "chatbot" and "получает награду:" in text.casefold():
-            # Other system reward notices are informational and must never be
-            # spoken as if they were user chat messages.
-            created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
-            db.save_chat_message(
-                platform="vkplay", message_id=event.get("id"),
-                broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
-                broadcaster_login="", user_id="", username=username, text=text,
-                created_at=created_at,
-                raw_json=json.dumps(event, ensure_ascii=False),
-            )
-            db.add_history(username, text, "vkplay-chat", created_at, status="received", profile="normal")
+
+        # VK emits reward activations as a separate ChatBot system message:
+        # "Jostik получает награду: Озвучить сообщение за 2: Текст".
+        # The actual viewer message arrives separately and is the only event
+        # that belongs in history/TTS. Never persist or speak the system notice.
+        if username.casefold() == "chatbot" and "получает награду:" in text.casefold():
             return
 
         created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
