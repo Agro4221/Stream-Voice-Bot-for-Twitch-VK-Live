@@ -81,6 +81,7 @@ class STTService:
             "language": self.config.language,
             "input_device": self.config.input_device,
             "sample_rate": self.config.sample_rate,
+            "input_stream_sample_rate": self.input_stream_sample_rate,
             "chunk_seconds": self.config.chunk_seconds,
             "overlap_seconds": self.config.overlap_seconds,
             "beam_size": self.config.beam_size,
