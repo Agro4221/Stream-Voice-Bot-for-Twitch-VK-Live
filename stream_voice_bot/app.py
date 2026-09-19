@@ -26,7 +26,7 @@ from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
 from .translator import TranslationService
 from .twitch import TwitchService
-from .vkplay import VKPlayService
+from .vkplay import VKPlayService, parse_vk_reward_announcement
 from .secrets import SecretStore
 
 
@@ -140,26 +140,6 @@ def install_silero_model(root: Path, force: bool = False) -> Path:
         raise RuntimeError("Silero model download failed or returned an invalid file")
     partial.replace(target)
     return target.resolve()
-
-
-VK_REWARD_ANNOUNCEMENT_RE = re.compile(
-    r"^\\s*\\*{0,2}ChatBot:\\s*(?P<username>[^*\\r\\n]+?)\\s*\\*{0,2}\\s+"
-    r"получает\\s+награду:\\s*Озвучить\\s+сообщение\\s+за\\s+"
-    r"\\d[\\d\\s.,]*\\s*:\\s*(?P<text>.+?)\\s*$",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
-def parse_vk_reward_announcement(text: str) -> dict | None:
-    """Extract the actual user text from VK's reward system chat message."""
-    match = VK_REWARD_ANNOUNCEMENT_RE.match((text or "").strip())
-    if not match:
-        return None
-    username = match.group("username").strip()
-    user_text = match.group("text").strip()
-    if not username or not user_text:
-        return None
-    return {"username": username, "text": user_text}
 
 
 def _read_app_version(root: Path) -> str:
