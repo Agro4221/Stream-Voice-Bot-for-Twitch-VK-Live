@@ -21,8 +21,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
-from .log_buffer import clear as clear_runtime_logs
-from .log_buffer import get_logs, install as install_log_buffer
 from .models import QueueItem, utc_now
 from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
@@ -251,7 +249,8 @@ def create_app(root: Path) -> FastAPI:
 
     async def schedule(coro):
         try:
-            loop = asyncio.get_running_loop()            loop.create_task(coro)
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
         except RuntimeError:
             pass
 
@@ -511,7 +510,8 @@ def create_app(root: Path) -> FastAPI:
         nonlocal device_task
         if device_task and not device_task.done():
             device_task.cancel()
-            try:                await device_task
+            try:
+                await device_task
             except asyncio.CancelledError:
                 pass
         device_task = None
@@ -769,7 +769,8 @@ def create_app(root: Path) -> FastAPI:
 
     @app.post("/api/repeat-many")
     async def repeat_many(req: RepeatManyRequest):
-        profile = req.profile if req.profile in profiles else "normal"        new_ids = []
+        profile = req.profile if req.profile in profiles else "normal"
+        new_ids = []
         for history_id in req.ids:
             row = db.get_history(history_id)
             if not row:
@@ -918,7 +919,6 @@ def create_app(root: Path) -> FastAPI:
     async def twitch_disconnect():
         await twitch.stop()
         return {"ok": True}
-
     @app.get("/api/twitch/rewards")
     async def twitch_rewards():
         if not twitch.access_token():
@@ -1018,3 +1018,80 @@ def create_app(root: Path) -> FastAPI:
     async def vkplay_stop():
         await vkplay.stop()
         return {"ok": True}
+
+    # ---- Subtitles ----
+    @app.get("/api/subtitles/tracks")
+    async def subtitle_tracks_state():
+        return {"ok": True, "tracks": subtitle_tracks}
+
+    @app.post("/api/subtitles/tracks")
+    async def subtitle_tracks_update(req: dict):
+        nonlocal subtitle_tracks
+        tracks = req.get("tracks")
+        if not isinstance(tracks, list) or not tracks or len(tracks) > 12:
+            raise HTTPException(400, "Нужно от 1 до 12 дорожек субтитров")
+        clean=[]
+        seen=set()
+        for raw in tracks:
+            tid=str(raw.get("id", "")).strip().lower()
+            name=str(raw.get("name", tid)).strip()[:64]
+            lang=str(raw.get("language", "ru")).strip().lower()[:16]
+            mode=str(raw.get("mode", "source")).strip()
+            if not re.fullmatch(r"[a-z0-9_-]{1,32}", tid) or tid in seen:
+                raise HTTPException(400, f"Неверный или повторяющийся ID дорожки: {tid}")
+            if mode == "whisper-translate":
+                mode = "translate"
+            if mode not in {"source", "translate"}:
+                mode = "source"
+            seen.add(tid)
+            clean.append({"id": tid, "name": name or tid, "language": lang or "ru", "enabled": bool(raw.get("enabled", True)), "mode": mode})
+        subtitle_tracks = clean
+        db.set_setting("subtitle_tracks", json.dumps(subtitle_tracks, ensure_ascii=False))
+        with subtitle_lock:
+            for t in subtitle_tracks:
+                subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+            stale = [k for k in subtitle_state if k not in {t["id"] for t in subtitle_tracks}]
+            for k in stale:
+                subtitle_state.pop(k, None)
+        source_language = db.get_setting("stt_language", "ru") or "ru"
+        translation_status["message"] = "Подготовка переводчиков…"
+        asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, clean))
+        return {"ok": True, "tracks": subtitle_tracks}
+
+    @app.post("/api/subtitles/prepare")
+    async def subtitles_prepare():
+        source_language = db.get_setting("stt_language", "ru") or "ru"
+        translation_status["message"] = "Подготовка переводчиков…"
+        asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, subtitle_tracks))
+        return {"ok": True, "message": "Подготовка языковых пакетов запущена в фоне."}
+
+    # ---- STT ----
+    @app.post("/api/stt/config")
+    async def stt_config(req: STTConfigRequest):
+        current_chunk = stt.config.chunk_seconds
+        current_overlap = stt.config.overlap_seconds
+        chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
+        overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
+        if overlap >= chunk:
+            raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
+        kwargs = req.model_dump(exclude_none=True)
+        try:
+            stt.save_config(**kwargs)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        return {"ok": True, "state": stt.state()}
+
+    @app.post("/api/stt/start")
+    async def stt_start():
+        try:
+            stt.start()
+            return {"ok": True, "state": stt.state()}
+        except Exception as e:
+            raise HTTPException(500, str(e))
+
+    @app.post("/api/stt/stop")
+    async def stt_stop():
+        stt.stop()
+        return {"ok": True}
+
+    return app
