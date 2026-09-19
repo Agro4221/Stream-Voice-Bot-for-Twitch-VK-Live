@@ -114,14 +114,21 @@ async function getJson(url) {
   return data;
 }
 
-async function resolveChannelId(channel) {
-  const url = `${API_BASE}/blog/${encodeURIComponent(channel)}/public_video_stream/chat/user/`;
-  const data = await getJson(url);
-  const id = data?.data?.owner?.id;
-  if (!id) {
-    throw new Error(`VK channel id not found for "${channel}"`);
+async function resolveChannel(channel) {
+  // The current VK Video Live client resolves the public websocket channel
+  // from /blog/<slug>. The old /public_video_stream/chat/user/ endpoint returns
+  // the owner id, which is not the same thing as the public chat subscription.
+  const data = await getJson(`${API_BASE}/blog/${encodeURIComponent(channel)}`);
+  const rawChannel = data?.publicWebSocketChannel ?? data?.data?.publicWebSocketChannel ?? "";
+  const publicWebSocketChannel = String(rawChannel).split(":").pop();
+  const ownerId = data?.owner?.id ?? data?.data?.owner?.id ?? "";
+  if (!publicWebSocketChannel) {
+    throw new Error(`VK public websocket chat channel not found for "${channel}"`);
   }
-  return String(id);
+  return {
+    publicWebSocketChannel,
+    ownerId: ownerId ? String(ownerId) : "",
+  };
 }
 
 async function getConnectToken() {
@@ -199,11 +206,14 @@ async function main() {
   }
 
   let channelId = "";
+  let publicChatChannel = "";
   try {
-    channelId = await resolveChannelId(channel);
+    const resolved = await resolveChannel(channel);
+    channelId = resolved.ownerId || resolved.publicWebSocketChannel;
+    publicChatChannel = resolved.publicWebSocketChannel;
     const token = await getConnectToken();
 
-    emitStatus(false, `Connecting to https://live.vkvideo.ru/${channel} (channel id ${channelId})`, channel);
+    emitStatus(false, `Connecting to https://live.vkvideo.ru/${channel} (chat channel ${publicChatChannel})`, channel);
 
     const socket = new WebSocket(WS_URL, {
       headers: { Origin: "https://live.vkvideo.ru" },
@@ -228,7 +238,7 @@ async function main() {
         }
 
         const subscribed = await sendCommand(socket, state, {
-          subscribe: { channel: `channel-chat:${channelId}` },
+          subscribe: { channel: `public-chat:${publicChatChannel}` },
         });
         if (subscribed?.error) {
           throw new Error(`VK chat subscribe failed: ${JSON.stringify(subscribed.error)}`);
