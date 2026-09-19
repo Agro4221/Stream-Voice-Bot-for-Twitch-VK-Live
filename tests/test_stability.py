@@ -108,7 +108,7 @@ class StabilityDatabaseTests(unittest.TestCase):
     def test_vk_reward_announcement_does_not_match_other_rewards(self):
         cases = [
             "ChatBot: Jostik получает награду: Другая награда за 2: Тест",
-            "ChatBot: Jostik получает награду за 2: Тест",
+            "ChatBot: Jostik получает награду: Совсем другая награда за 500: Тест",
         ]
         for event_text in cases:
             with self.subTest(event_text=event_text):
