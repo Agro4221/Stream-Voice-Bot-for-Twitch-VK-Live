@@ -39,11 +39,17 @@ class StabilityDatabaseTests(unittest.TestCase):
             "ChatBot: Jostik получает награду: Озвучить сообщение за 2: Тест-Тест 123",
             "Jostikполучает награду: Озвучить сообщение за 2 Проверка озвучки",
         ]
-        for event_text in cases:
+        expected = [
+            {"username": "Jostik", "text": "Тест-Тест 123"},
+            {"username": "Jostik", "text": "Тест-Тест 123"},
+            {"username": "Jostik", "text": "Тест-Тест 123"},
+            {"username": "Jostik", "text": "Проверка озвучки"},
+        ]
+        for event_text, expected_payload in zip(cases, expected):
             with self.subTest(event_text=event_text):
                 self.assertEqual(
                     parse_vk_reward_announcement(event_text),
-                    {"username": "Jostik", "text": "Тест-Тест 123"},
+                    expected_payload,
                 )
 
     def test_vk_reward_announcement_does_not_match_other_rewards(self):
