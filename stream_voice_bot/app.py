@@ -26,7 +26,7 @@ from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
 from .translator import TranslationService
 from .twitch import TwitchService
-from .vkplay import VKPlayService
+from .vkplay import VKPlayService, parse_vk_reward_announcement
 from .secrets import SecretStore
 
 
