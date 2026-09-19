@@ -168,7 +168,7 @@ async function main() {
   if (selfTest) {
     const sample = {
       push: {
-        channel: "channel-chat:123",
+        channel: "public-chat:123",
         pub: {
           data: {
             type: "message",
@@ -193,7 +193,7 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       transport: "raw-vk-websocket",
-      channelSubscription: "channel-chat:<channel-id>",
+      channelSubscription: "public-chat:<public-websocket-channel>",
       parser: "ok",
     }));
     return;
