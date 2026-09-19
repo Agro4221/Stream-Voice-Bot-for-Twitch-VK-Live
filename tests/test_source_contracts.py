@@ -28,10 +28,13 @@ class StabilitySourceContractTests(unittest.TestCase):
 
     def test_vk_watchdog_contract(self):
         src = self.read("stream_voice_bot/vk_bridge/bridge.js")
-        self.assertIn("client?.socket", src)
+        self.assertIn('const WS_URL = "wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2";', src)
+        self.assertIn('channel-chat:${channelId}', src)
+        self.assertIn("function parseChatPush(payload)", src)
+        self.assertIn("socket.ping()", src)
         self.assertIn("lastPongAt", src)
         self.assertIn("--self-test", src)
-        self.assertIn("ctx?.message?.createdAt", src)
+        self.assertIn("body?.createdAt", src)
 
     def test_app_and_db_stability_contract(self):
         app = self.read("stream_voice_bot/app.py")
