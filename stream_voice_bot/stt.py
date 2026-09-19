@@ -241,15 +241,15 @@ class STTService:
 
     def _run(self):
         target_rate = max(1, int(self.config.sample_rate))
-        input_rate = self._resolve_input_stream_rate()
-        chunk_samples = int(round(input_rate * self.config.chunk_seconds))
-        overlap_samples = int(round(input_rate * self.config.overlap_seconds))
-        if input_rate != target_rate:
-            self._emit(
-                running=True,
-                message=f"Микрофон работает на {input_rate} Hz; для Whisper пересэмплирую в {target_rate} Hz.",
-            )
         try:
+            input_rate = self._resolve_input_stream_rate()
+            chunk_samples = int(round(input_rate * self.config.chunk_seconds))
+            overlap_samples = int(round(input_rate * self.config.overlap_seconds))
+            if input_rate != target_rate:
+                self._emit(
+                    running=True,
+                    message=f"Микрофон работает на {input_rate} Hz; для Whisper пересэмплирую в {target_rate} Hz.",
+                )
             with sd.InputStream(
                 device=self.config.input_device,
                 channels=1,
