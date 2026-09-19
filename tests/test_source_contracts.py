@@ -48,7 +48,7 @@ class StabilitySourceContractTests(unittest.TestCase):
     def test_vk_watchdog_contract(self):
         src = self.read("stream_voice_bot/vk_bridge/bridge.js")
         self.assertIn('const WS_URL = "wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2";', src)
-        self.assertIn('channel-chat:${channelId}', src)
+        self.assertIn('public-chat:${publicChatChannel}', src)
         self.assertIn("function parseChatPush(payload)", src)
         self.assertIn("socket.ping()", src)
         self.assertIn("lastPongAt", src)
@@ -78,6 +78,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         src = self.read("stream_voice_bot/stt.py")
         self.assertIn("deque(maxlen=200)", src)
         self.assertIn("def _resolve_input_stream_rate", src)
+        self.assertIn("resample_poly", src)
         self.assertIn("resample_poly", src)
         self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
 
