@@ -1,9 +1,11 @@
+import logging
 import tempfile
 import unittest
 from pathlib import Path
 
 from stream_voice_bot.db import Database
 from stream_voice_bot.vkplay import parse_vk_reward_announcement
+from stream_voice_bot import log_buffer
 import stream_voice_bot.stt as stt_module
 
 
@@ -31,6 +33,15 @@ class StabilityDatabaseTests(unittest.TestCase):
                 self.assertEqual(service.input_stream_sample_rate, 48000)
             finally:
                 stt_module.sd = real_sd
+
+    def test_runtime_log_buffer_collects_messages(self):
+        log_buffer.install()
+        log_buffer.clear()
+        logging.getLogger("stream_voice_bot.test").info("runtime-log-test")
+        logs = log_buffer.get_logs(10)
+        self.assertTrue(any(item["message"] == "runtime-log-test" for item in logs))
+        log_buffer.clear()
+        self.assertEqual(log_buffer.get_logs(10), [])
 
     def test_event_claim_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:

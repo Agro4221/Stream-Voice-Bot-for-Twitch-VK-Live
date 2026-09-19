@@ -16,7 +16,7 @@ if exist ".venv\Scripts\python.exe" (
 if "%NEED_SETUP%"=="1" (
   echo.
   echo ===============================================
-  echo        Stream Voice Bot - first run setup
+  echo      Stream Voice Bot - first run setup
   echo ===============================================
   echo.
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_windows.ps1"
@@ -28,14 +28,24 @@ if "%NEED_SETUP%"=="1" (
   )
 )
 
-echo.
+if not exist ".venv\Scripts\pythonw.exe" (
+  echo [ERROR] Python windowless runtime not found.
+  pause
+  exit /b 1
+)
+
 echo Starting Stream Voice Bot...
-echo Opening admin: http://127.0.0.1:8787
-echo.
-start "" powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
-"%~dp0.venv\Scripts\python.exe" -m stream_voice_bot
+start "" "%~dp0.venv\Scripts\pythonw.exe" -m stream_voice_bot
+
+rem Wait until the local server is ready and open the admin page.
+rem open_admin.ps1 is hidden, so the console closes immediately after the browser opens.
+powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
 if errorlevel 1 (
   echo.
-  echo [ERROR] Stream Voice Bot stopped with an error.
+  echo [ERROR] Admin page could not be opened automatically.
+  echo Run start_bot_debug.bat to diagnose startup problems.
+  pause
+  exit /b 1
 )
-pause
+
+exit /b 0

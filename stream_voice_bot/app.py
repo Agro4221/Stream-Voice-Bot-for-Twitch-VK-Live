@@ -21,6 +21,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
+from .log_buffer import clear as clear_runtime_logs
+from .log_buffer import get_logs, install as install_log_buffer
 from .models import QueueItem, utc_now
 from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
@@ -153,6 +155,8 @@ def _read_app_version(root: Path) -> str:
 def create_app(root: Path) -> FastAPI:
     app_version = _read_app_version(root)
     app = FastAPI(title="Stream Voice Bot", version=app_version)
+    install_log_buffer()
+    log.info("Admin backend initialized (version=%s)", app_version)
     data_dir = root / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
 
@@ -275,6 +279,9 @@ def create_app(root: Path) -> FastAPI:
 
     def on_twitch_status(data: dict):
         twitch_status.update(data)
+        message = str(data.get("message") or "").strip()
+        if message:
+            log.info("Twitch: %s", message)
 
     def _vk_dedupe_key(username: str, text: str) -> tuple[str, str]:
         return (
@@ -337,6 +344,7 @@ def create_app(root: Path) -> FastAPI:
             username = reward["username"]
             text = reward["text"]
             reward_key = _vk_dedupe_key(username, text)
+            log.info("VK reward announcement parsed: user=%s", username)
 
             # If the real viewer message was already processed, this is only
             # VK's duplicate system announcement. Do not speak/store it.
@@ -385,6 +393,9 @@ def create_app(root: Path) -> FastAPI:
 
     def on_vk_status(data: dict):
         vk_status.update(data)
+        message = str(data.get("message") or "").strip()
+        if message:
+            log.info("VK: %s", message)
 
     def on_redemption(event: dict):
         # Only process new/unfulfilled redemptions.
@@ -479,21 +490,25 @@ def create_app(root: Path) -> FastAPI:
 
     @app.on_event("startup")
     async def startup():
+        log.info("Bot startup")
         try:
             if twitch.configured() and await twitch.validate_token():
                 await twitch.start()
         except Exception as e:
             twitch_status["connected"] = False
             twitch_status["message"] = f"Автоподключение Twitch: {type(e).__name__}: {e}"
+            log.exception("Twitch auto-connect failed")
         try:
             if vkplay.configured():
                 await vkplay.start()
         except Exception as e:
             vk_status["connected"] = False
             vk_status["message"] = f"Автоподключение VK: {type(e).__name__}: {e}"
+            log.exception("VK auto-connect failed")
 
     @app.on_event("shutdown")
     async def shutdown():
+        log.info("Bot shutdown requested")
         nonlocal device_task
         if device_task and not device_task.done():
             device_task.cancel()
@@ -594,6 +609,15 @@ def create_app(root: Path) -> FastAPI:
                 "ffmpeg": shutil.which("ffmpeg"),
             },
         }
+
+    @app.get("/api/logs")
+    async def runtime_logs(limit: int = 250):
+        return {"logs": get_logs(limit)}
+
+    @app.post("/api/logs/clear")
+    async def runtime_logs_clear():
+        clear_runtime_logs()
+        return {"ok": True}
 
     @app.get("/api/history")
     async def history(limit: int = 100):
