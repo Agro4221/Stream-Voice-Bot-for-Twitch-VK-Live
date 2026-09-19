@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from stream_voice_bot.db import Database
-from stream_voice_bot.app import parse_vk_reward_announcement
+from stream_voice_bot.vkplay import parse_vk_reward_announcement
 
 
 class StabilityDatabaseTests(unittest.TestCase):
