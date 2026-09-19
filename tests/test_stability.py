@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from stream_voice_bot.db import Database
+from stream_voice_bot.app import parse_vk_reward_announcement
 
 
 class StabilityDatabaseTests(unittest.TestCase):
@@ -23,6 +24,17 @@ class StabilityDatabaseTests(unittest.TestCase):
             self.assertEqual(db.get_history(first)["status"], "cleared")
             self.assertEqual(db.get_history(second)["status"], "playing")
 
+
+    def test_vk_reward_announcement_extracts_viewer_text(self):
+        event_text = "**ChatBot: Jostik** получает награду: Озвучить сообщение за 2: Тест-Тест 123"
+        self.assertEqual(
+            parse_vk_reward_announcement(event_text),
+            {"username": "Jostik", "text": "Тест-Тест 123"},
+        )
+
+    def test_vk_reward_announcement_does_not_match_other_rewards(self):
+        event_text = "ChatBot: Jostik получает награду: Другая награда за 2: Тест"
+        self.assertIsNone(parse_vk_reward_announcement(event_text))
 
 if __name__ == "__main__":
     unittest.main()
