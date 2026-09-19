@@ -49,6 +49,10 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 .field{min-width:150px}.range-wrap{display:flex;align-items:center;gap:10px}.range-wrap input[type=range]{flex:1}.range-value{min-width:68px;text-align:right;font-variant-numeric:tabular-nums}.subtrack{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:8px;background:var(--panel2)}
 .notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.profile-box{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
 .oktext{color:var(--ok)} .badtext{color:var(--danger)}
+.runtime-logs{max-height:360px;overflow:auto;background:#0a0d12;border:1px solid var(--border);border-radius:10px;padding:8px;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:12px;line-height:1.45}
+.log-line{display:grid;grid-template-columns:82px 72px 170px 1fr;gap:8px;padding:4px 6px;border-bottom:1px solid #171c24}
+.log-line:last-child{border-bottom:0}.log-time,.log-name{color:var(--muted)}.log-level{font-weight:700}.log-level.error,.log-level.critical{color:var(--danger)}.log-level.warning{color:#e4c285}.log-level.info{color:var(--ok)}.log-message{white-space:pre-wrap;word-break:break-word}
+@media(max-width:700px){.log-line{grid-template-columns:1fr}.log-time,.log-name{font-size:11px}}
 @media(max-width:900px){.two-col{grid-template-columns:1fr}}
 </style>
 </head>
@@ -248,7 +252,6 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="small" style="margin-top:8px">Субтитры можно пока не использовать. Первый запуск модели STT может скачать модель с Hugging Face. На RTX 3060 сначала пробуем CUDA; при ошибке приложение автоматически попытается CPU.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
 </section>
-
 <section class="card wide">
   <h2>Очередь</h2>
   <div id="queue"></div>
@@ -269,6 +272,14 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </table>
   </div>
 </section>
+<section class="card wide">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><h2>Подробные логи</h2><div class="small">Последние события бота, подключений, ошибок и предупреждений. Журнал обновляется автоматически.</div></div>
+    <button class="secondary" type="button" onclick="clearRuntimeLogs()">Очистить</button>
+  </div>
+  <div id="runtimeLogs" class="runtime-logs" style="margin-top:10px"><div class="small">Загрузка логов…</div></div>
+</section>
+
 </main>
 
 <script>
@@ -280,6 +291,7 @@ async function shutdownBot(){
   try{
     await api('/api/shutdown',{method:'POST'});
     if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
+    if(logTimer){ clearInterval(logTimer); logTimer=null; }
     document.getElementById('status').textContent='Бот остановлен — окно можно закрыть';
     document.title='Stream Voice Bot — остановлен';
   }catch(e){
@@ -315,6 +327,7 @@ function formatHistoryTime(value){
 }
 let refreshBusy=false;
 let refreshTimer=null;
+let logTimer=null;
 
 function isUserEditing(el, serverValue){
   if(!el) return true;
@@ -497,8 +510,7 @@ async function refresh(){
     const sttInput=document.getElementById('stt_input');
     if(!sttInput.dataset.loaded){
       sttInput.innerHTML=dev.filter(d=>d.input_channels>0).map(d=>
-        `<option value="${d.id}">${d.id}: ${esc(d.name)} (${d.default_samplerate} Hz)</option>`).join('');
-      sttInput.dataset.loaded='1';
+        `<option value="${d.id}">${d.id}: ${esc(d.name)} (${d.default_samplerate} Hz)</option>`).join('');      sttInput.dataset.loaded='1';
     }
     writeServerValue('stt_input', s.stt.input_device===null || s.stt.input_device===undefined ? '' : s.stt.input_device);
 
@@ -623,8 +635,32 @@ async function repeatSelected(){
   try{await api('/api/repeat-many',{method:'POST',body:JSON.stringify({ids,profile})});refresh()}catch(e){alert(e.message)}
 }
 refresh();
+refreshLogs();
 refreshTimer=setInterval(refresh,1500);
+logTimer=setInterval(refreshLogs,1500);
 
+async function refreshLogs(){
+  const box=document.getElementById('runtimeLogs');
+  if(!box) return;
+  const stickToBottom=box.scrollHeight-box.scrollTop-box.clientHeight<60;
+  try{
+    const x=await api('/api/logs?limit=250');
+    const logs=x.logs||[];
+    box.innerHTML=logs.length ? logs.map(item=>
+      '<div class="log-line"><span class="log-time">'+esc(item.timestamp||'')+'</span>'
+      +'<span class="log-level '+String(item.level||'').toLowerCase()+'">'+esc(item.level||'')+'</span>'
+      +'<span class="log-name">'+esc(item.logger||'')+'</span>'
+      +'<span class="log-message">'+esc(item.message||'')+'</span></div>'
+    ).join('') : '<div class="small">Лог пока пуст.</div>';
+    if(stickToBottom) box.scrollTop=box.scrollHeight;
+  }catch(e){
+    box.innerHTML='<div class="small badtext">Не удалось загрузить логи: '+esc(e.message)+'</div>';
+  }
+}
+async function clearRuntimeLogs(){
+  try{ await api('/api/logs/clear',{method:'POST'}); refreshLogs(); }
+  catch(e){ alert('Не удалось очистить логи: '+e.message); }
+}
 async function saveTwitch(){
   try{
     const id=document.getElementById('twitch_id').value.trim();
@@ -747,8 +783,7 @@ function bindEditableState(id){
   const el=document.getElementById(id);
   if(!el) return;
   el.addEventListener('input',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });
-  el.addEventListener('change',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });
-}
+  el.addEventListener('change',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });}
 function clearEditableState(id){
   const el=document.getElementById(id);
   if(el){ delete el.dataset.userEdited; el.classList.remove('dirty'); }
