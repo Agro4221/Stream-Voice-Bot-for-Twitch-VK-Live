@@ -19,6 +19,18 @@ from torch.package import PackageImporter
 from .models import QueueItem
 from .text_normalize import normalize_for_tts
 
+# Keep local TTS unobtrusive on gaming/streaming PCs. PyTorch otherwise
+# chooses a thread pool based on the host CPU, which can create avoidable
+# CPU spikes during Silero inference. Override with SVB_TORCH_THREADS when
+# a higher throughput profile is preferred.
+_torch_threads = max(1, int(os.environ.get("SVB_TORCH_THREADS", "1")))
+try:
+    torch.set_num_threads(_torch_threads)
+    torch.set_num_interop_threads(1)
+except RuntimeError:
+    # PyTorch may reject changing inter-op threads after work has started.
+    pass
+
 
 class SileroV5:
     def __init__(self, model_path: Path, device: str = "cpu"):
