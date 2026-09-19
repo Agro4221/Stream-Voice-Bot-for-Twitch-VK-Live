@@ -50,6 +50,10 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"cleared", "audio_error"', app)
         self.assertIn("def claim_event", db)
         self.assertIn("def mark_pending_history", db)
+        self.assertIn("def clear_history", db)
+        self.assertIn('@app.delete("/api/history")', app)
+        self.assertIn('@app.post("/api/shutdown")', app)
+        self.assertIn("server.should_exit = True", app)
 
     def test_stt_is_bounded_and_validated(self):
         src = self.read("stream_voice_bot/stt.py")
