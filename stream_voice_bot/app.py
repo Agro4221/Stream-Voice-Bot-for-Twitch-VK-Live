@@ -598,6 +598,11 @@ def create_app(root: Path) -> FastAPI:
     async def history(limit: int = 100):
         return db.history(limit)
 
+    @app.delete("/api/history")
+    async def clear_history():
+        removed = db.clear_history()
+        return {"ok": True, "removed": removed}
+
     @app.get("/api/audio/devices")
     async def audio_devices():
         devices = []
