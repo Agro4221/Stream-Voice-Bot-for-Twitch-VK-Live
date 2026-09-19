@@ -331,6 +331,8 @@ def create_app(root: Path) -> FastAPI:
         reward = parse_vk_reward_announcement(raw_text)
         reward_key = None
         if reward and username.casefold() == "chatbot":
+            # VK's system event contains the real viewer text after the reward
+            # description. Only that viewer text belongs in TTS/history.
             username = reward["username"]
             text = reward["text"]
             reward_key = _vk_dedupe_key(username, text)
@@ -341,6 +343,9 @@ def create_app(root: Path) -> FastAPI:
                 vk_recent_chat.pop(reward_key, None)
                 return
         else:
+            if username.casefold() == "chatbot" and "получает награду:" in raw_text.casefold():
+                # Unknown reward types are system-only events, not user chat.
+                return
             text = raw_text
             normal_key = _vk_dedupe_key(username, text)
 
