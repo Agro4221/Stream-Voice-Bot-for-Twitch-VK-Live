@@ -5,6 +5,7 @@
   "description": "Readonly VK Video Live chat bridge for Stream Voice Bot",
   "type": "module",
   "dependencies": {
-    "vklive-message-client": "5.3.2"
+    "vklive-message-client": "5.3.2",
+    "ws": "8.21.3"
   }
 }
