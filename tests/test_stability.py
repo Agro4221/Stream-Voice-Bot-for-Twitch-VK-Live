@@ -4,9 +4,34 @@ from pathlib import Path
 
 from stream_voice_bot.db import Database
 from stream_voice_bot.vkplay import parse_vk_reward_announcement
+import stream_voice_bot.stt as stt_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
+    def test_stt_falls_back_to_device_supported_sample_rate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            service.config.sample_rate = 16000
+            service.config.input_device = 3
+
+            class FakeSD:
+                def query_devices(self, device=None, kind=None):
+                    self.queried = (device, kind)
+                    return {"default_samplerate": 48000}
+
+                def check_input_settings(self, **kwargs):
+                    if kwargs["samplerate"] != 48000:
+                        raise RuntimeError("unsupported")
+
+            real_sd = stt_module.sd
+            try:
+                stt_module.sd = FakeSD()
+                self.assertEqual(service._resolve_input_stream_rate(), 48000)
+                self.assertEqual(service.input_stream_sample_rate, 48000)
+            finally:
+                stt_module.sd = real_sd
+
     def test_event_claim_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
@@ -40,13 +65,25 @@ class StabilityDatabaseTests(unittest.TestCase):
             self.assertEqual(db.get_history(queued)["status"], "queued")
             self.assertEqual(db.get_history(playing)["status"], "playing")
 
-
     def test_vk_reward_announcement_extracts_viewer_text(self):
         event_text = "**ChatBot: Jostik** получает награду: Озвучить сообщение за 2: Тест-Тест 123"
         self.assertEqual(
             parse_vk_reward_announcement(event_text),
             {"username": "Jostik", "text": "Тест-Тест 123"},
         )
+
+    def test_vk_reward_announcement_without_reward_title_extracts_viewer_text(self):
+        cases = [
+            "ChatBot: Jostik получает награду за 2: Привет лох!",
+            "Jostik получает награду за 2 Привет лох!",
+            "**ChatBot: Jostik** получает награду за 2\nПривет лох!",
+        ]
+        for event_text in cases:
+            with self.subTest(event_text=event_text):
+                self.assertEqual(
+                    parse_vk_reward_announcement(event_text),
+                    {"username": "Jostik", "text": "Привет лох!"},
+                )
 
     def test_vk_reward_chat_format_from_live_message(self):
         cases = [
@@ -69,8 +106,13 @@ class StabilityDatabaseTests(unittest.TestCase):
                 )
 
     def test_vk_reward_announcement_does_not_match_other_rewards(self):
-        event_text = "ChatBot: Jostik получает награду: Другая награда за 2: Тест"
-        self.assertIsNone(parse_vk_reward_announcement(event_text))
+        cases = [
+            "ChatBot: Jostik получает награду: Другая награда за 2: Тест",
+            "ChatBot: Jostik получает награду: Совсем другая награда за 500: Тест",
+        ]
+        for event_text in cases:
+            with self.subTest(event_text=event_text):
+                self.assertIsNone(parse_vk_reward_announcement(event_text))
 
 if __name__ == "__main__":
     unittest.main()

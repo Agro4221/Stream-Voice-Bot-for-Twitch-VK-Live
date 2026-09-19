@@ -330,15 +330,16 @@ def create_app(root: Path) -> FastAPI:
 
         reward = parse_vk_reward_announcement(raw_text)
         reward_key = None
-        if reward and username.casefold() == "chatbot":
-            # VK's system event contains the real viewer text after the reward
-            # description. Only that viewer text belongs in TTS/history.
+        if reward:
+            # VK normally labels this system message as "ChatBot", but the
+            # author label is presentation data and can change independently
+            # of the reward payload. Trust the strict reward parser instead.
             username = reward["username"]
             text = reward["text"]
             reward_key = _vk_dedupe_key(username, text)
 
             # If the real viewer message was already processed, this is only
-            # VK's duplicate ChatBot system announcement. Do not speak/store it.
+            # VK's duplicate system announcement. Do not speak/store it.
             if reward_key in vk_recent_chat:
                 vk_recent_chat.pop(reward_key, None)
                 return

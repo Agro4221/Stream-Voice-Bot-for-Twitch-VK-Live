@@ -9,6 +9,7 @@ from typing import Callable
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
+from scipy.signal import resample_poly
 
 
 @dataclass
@@ -59,6 +60,7 @@ class STTService:
         self.model_loading = False
         self.message = "STT остановлен"
         self.last_error = ""
+        self.input_stream_sample_rate: int | None = None
 
     def _emit(self, **data):
         with self.lock:
@@ -79,6 +81,7 @@ class STTService:
             "language": self.config.language,
             "input_device": self.config.input_device,
             "sample_rate": self.config.sample_rate,
+            "input_stream_sample_rate": self.input_stream_sample_rate,
             "chunk_seconds": self.config.chunk_seconds,
             "overlap_seconds": self.config.overlap_seconds,
             "beam_size": self.config.beam_size,
@@ -197,17 +200,60 @@ class STTService:
     def _callback(self, indata, frames, time_info, status):
         if status:
             self._emit(running=True, message=f"Audio input: {status}")
-        self.audio_q.append(indata[:, 0].copy())
+        if getattr(indata, "ndim", 1) > 1:
+            self.audio_q.append(indata[:, 0].copy())
+        else:
+            self.audio_q.append(np.asarray(indata, dtype=np.float32).copy())
+
+    def _resolve_input_stream_rate(self) -> int:
+        """Pick a sample rate the selected Windows input device accepts."""
+        requested = max(1, int(self.config.sample_rate))
+        device = self.config.input_device
+        try:
+            info = sd.query_devices(device, kind="input")
+        except TypeError:
+            info = sd.query_devices(device)
+        default_rate = int(round(float(info["default_samplerate"])))
+
+        candidates = []
+        for rate in (requested, default_rate, 48000, 44100, 32000, 16000):
+            rate = int(rate)
+            if rate > 0 and rate not in candidates:
+                candidates.append(rate)
+
+        errors = []
+        for rate in candidates:
+            try:
+                sd.check_input_settings(
+                    device=device,
+                    samplerate=rate,
+                    channels=1,
+                    dtype="float32",
+                )
+                self.input_stream_sample_rate = rate
+                return rate
+            except Exception as e:
+                errors.append(f"{rate} Hz: {type(e).__name__}: {e}")
+
+        raise RuntimeError("Микрофон не принимает ни одну из проверенных частот. "
+            f"Требуется {requested} Hz; default устройства {default_rate} Hz. "
+            + " | ".join(errors[-3:]))
 
     def _run(self):
-        sample_rate = self.config.sample_rate
-        chunk_samples = int(sample_rate * self.config.chunk_seconds)
-        overlap_samples = int(sample_rate * self.config.overlap_seconds)
+        target_rate = max(1, int(self.config.sample_rate))
         try:
+            input_rate = self._resolve_input_stream_rate()
+            chunk_samples = int(round(input_rate * self.config.chunk_seconds))
+            overlap_samples = int(round(input_rate * self.config.overlap_seconds))
+            if input_rate != target_rate:
+                self._emit(
+                    running=True,
+                    message=f"Микрофон работает на {input_rate} Hz; для Whisper пересэмплирую в {target_rate} Hz.",
+                )
             with sd.InputStream(
                 device=self.config.input_device,
                 channels=1,
-                samplerate=sample_rate,
+                samplerate=input_rate,
                 dtype="float32",
                 callback=self._callback,
                 blocksize=1600,
@@ -224,8 +270,17 @@ class STTService:
                     if len(buf) < chunk_samples:
                         continue
 
-                    audio = buf[:chunk_samples]
+                    source_audio = buf[:chunk_samples]
                     buf = buf[chunk_samples - overlap_samples:]
+
+                    if input_rate != target_rate:
+                        audio = resample_poly(
+                            source_audio,
+                            target_rate,
+                            input_rate,
+                        ).astype(np.float32)
+                    else:
+                        audio = source_audio
 
                     try:
                         segments, info = self.model.transcribe(
@@ -300,5 +355,6 @@ class STTService:
         finally:
             with self.lock:
                 self.thread = None
+            self.input_stream_sample_rate = None
             if self.stop_event.is_set():
                 self._emit(running=False, model_loading=False, message="STT остановлен")
