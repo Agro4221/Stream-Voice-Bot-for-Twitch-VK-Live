@@ -44,7 +44,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("from .models import QueueItem, utc_now", app)
         self.assertIn('source = "vkplay-reward" if reward_key else "vkplay-chat"', app)
         self.assertIn("parse_vk_reward_announcement(raw_text)", app)
-        self.assertIn('username.casefold() == "chatbot" and "получает награду:" in text.casefold()', app)
+        self.assertIn('username.casefold() == "chatbot" and "получает награду:" in raw_text.casefold()', app)
         self.assertIn("from .vkplay import VKPlayService", app)
         self.assertIn('"cleared", "audio_error"', app)
         self.assertIn("def claim_event", db)
