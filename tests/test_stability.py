@@ -37,6 +37,7 @@ class StabilityDatabaseTests(unittest.TestCase):
             "Jostik получает награду: Озвучить сообщение за 2\nТест-Тест 123",
             "Jostik получает награду: Озвучить сообщение за 2 Тест-Тест 123",
             "ChatBot: Jostik получает награду: Озвучить сообщение за 2: Тест-Тест 123",
+            "Jostikполучает награду: Озвучить сообщение за 2 Проверка озвучки",
         ]
         for event_text in cases:
             with self.subTest(event_text=event_text):
