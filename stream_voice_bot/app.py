@@ -142,6 +142,26 @@ def install_silero_model(root: Path, force: bool = False) -> Path:
     return target.resolve()
 
 
+VK_REWARD_ANNOUNCEMENT_RE = re.compile(
+    r"^\\s*\\*{0,2}ChatBot:\\s*(?P<username>[^*\\r\\n]+?)\\s*\\*{0,2}\\s+"
+    r"получает\\s+награду:\\s*Озвучить\\s+сообщение\\s+за\\s+"
+    r"\\d[\\d\\s.,]*\\s*:\\s*(?P<text>.+?)\\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def parse_vk_reward_announcement(text: str) -> dict | None:
+    """Extract the actual user text from VK's reward system chat message."""
+    match = VK_REWARD_ANNOUNCEMENT_RE.match((text or "").strip())
+    if not match:
+        return None
+    username = match.group("username").strip()
+    user_text = match.group("text").strip()
+    if not username or not user_text:
+        return None
+    return {"username": username, "text": user_text}
+
+
 def _read_app_version(root: Path) -> str:
     try:
         value = (root / "VERSION").read_text(encoding="utf-8").strip()
@@ -282,6 +302,7 @@ def create_app(root: Path) -> FastAPI:
         if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
         username = event.get("chatter_user_name", "unknown")
+        created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         db.save_chat_message(
             platform="twitch",
             message_id=event.get("message_id"),
@@ -290,10 +311,14 @@ def create_app(root: Path) -> FastAPI:
             user_id=event.get("chatter_user_id", ""),
             username=username,
             text=text,
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            created_at=created_at,
             raw_json=json.dumps(event, ensure_ascii=False),
         )
-        db.add_history(username, text, "twitch-chat", time.strftime("%Y-%m-%dT%H:%M:%S"), status="received", profile="normal")
+        try:
+            queue.enqueue(QueueItem(text, username, "twitch-chat"), profile="normal")
+        except Exception as e:
+            db.add_history(username, text, "twitch-chat", created_at, status="received", profile="normal")
+            log.exception("Twitch chat message could not be queued: %s", e)
 
     def on_vk_chat(event: dict):
         text = (event.get("text") or "").strip()
@@ -302,7 +327,29 @@ def create_app(root: Path) -> FastAPI:
         message_id = event.get("id")
         if message_id and not db.claim_event("vk:" + str(message_id)):
             return
-        username = event.get("username", "unknown")
+
+        username = (event.get("username") or "unknown").strip() or "unknown"
+        reward = parse_vk_reward_announcement(text)
+        if reward:
+            # VK readonly chat clients receive a human-readable system notice
+            # for some channel rewards instead of the structured reward event.
+            # Feed only the actual viewer input to TTS/history.
+            username = reward["username"]
+            text = reward["text"]
+        elif username.casefold() == "chatbot" and "получает награду:" in text.casefold():
+            # Other system reward notices are informational and must never be
+            # spoken as if they were user chat messages.
+            created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+            db.save_chat_message(
+                platform="vkplay", message_id=event.get("id"),
+                broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
+                broadcaster_login="", user_id="", username=username, text=text,
+                created_at=created_at,
+                raw_json=json.dumps(event, ensure_ascii=False),
+            )
+            db.add_history(username, text, "vkplay-chat", created_at, status="received", profile="normal")
+            return
+
         created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         db.save_chat_message(
             platform="vkplay", message_id=event.get("id"),
@@ -312,13 +359,10 @@ def create_app(root: Path) -> FastAPI:
             raw_json=json.dumps(event, ensure_ascii=False),
         )
         # VK chat is part of the voice-bot contract: persist the message and
-        # put it through the same normal TTS queue as admin messages.
+        # put it through the same normal TTS queue as Twitch/admin messages.
         try:
-            item = QueueItem(text, username, "vkplay-chat")
-            queue.enqueue(item, profile="normal")
+            queue.enqueue(QueueItem(text, username, "vkplay-chat"), profile="normal")
         except Exception as e:
-            # Keep the received chat record when the message cannot be queued
-            # (for example, max length/queue validation rejects it).
             db.add_history(
                 username, text, "vkplay-chat", created_at,
                 status="received", profile="normal",
