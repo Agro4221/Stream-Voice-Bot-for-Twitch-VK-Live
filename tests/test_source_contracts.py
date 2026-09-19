@@ -28,15 +28,25 @@ class StabilitySourceContractTests(unittest.TestCase):
 
     def test_vk_watchdog_contract(self):
         src = self.read("stream_voice_bot/vk_bridge/bridge.js")
-        self.assertIn("client?.socket", src)
+        self.assertIn('const WS_URL = "wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2";', src)
+        self.assertIn('channel-chat:${channelId}', src)
+        self.assertIn("function parseChatPush(payload)", src)
+        self.assertIn("socket.ping()", src)
         self.assertIn("lastPongAt", src)
         self.assertIn("--self-test", src)
-        self.assertIn("ctx?.message?.createdAt", src)
+        self.assertIn("body?.createdAt", src)
 
     def test_app_and_db_stability_contract(self):
         app = self.read("stream_voice_bot/app.py")
         db = self.read("stream_voice_bot/db.py")
         self.assertIn('db.claim_event("twitch:" + str(dedupe_id))', app)
+        self.assertIn('queue.enqueue(QueueItem(text, username, "twitch-chat", created_at=created_at), profile="normal")', app)
+        self.assertIn("from .models import QueueItem, utc_now", app)
+        self.assertIn('source = "vkplay-reward" if reward_key else "vkplay-chat"', app)
+        self.assertIn("parse_vk_reward_announcement(raw_text)", app)
+        self.assertIn('username.casefold() == "chatbot" and "получает награду:" in raw_text.casefold()', app)
+        self.assertIn("QueueItem(text, username, source, created_at=created_at)", app)
+        self.assertIn("from .vkplay import VKPlayService, parse_vk_reward_announcement", app)
         self.assertIn('"cleared", "audio_error"', app)
         self.assertIn("def claim_event", db)
         self.assertIn("def mark_pending_history", db)

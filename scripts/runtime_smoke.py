@@ -30,6 +30,12 @@ def main() -> None:
     from stream_voice_bot.models import QueueItem
 
     assert app_module._read_app_version(ROOT) == version
+    assert vkplay_module.parse_vk_reward_announcement(
+        "**ChatBot: Jostik** получает награду: Озвучить сообщение за 2: Тест-Тест 123"
+    ) == {"username": "Jostik", "text": "Тест-Тест 123"}
+    assert vkplay_module.parse_vk_reward_announcement(
+        "ChatBot: Jostik получает награду: Другая награда за 2: Тест"
+    ) is None
     assert twitch_module.TwitchService.REQUIRED_SCOPES == [
         "user:read:chat",
         "channel:read:redemptions",

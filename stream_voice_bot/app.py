@@ -21,12 +21,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
-from .models import QueueItem
+from .models import QueueItem, utc_now
 from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
 from .translator import TranslationService
 from .twitch import TwitchService
-from .vkplay import VKPlayService
+from .vkplay import VKPlayService, parse_vk_reward_announcement
 from .secrets import SecretStore
 
 
@@ -241,6 +241,9 @@ def create_app(root: Path) -> FastAPI:
     }
 
     device_task: asyncio.Task | None = None
+    vk_recent_chat: dict[tuple[str, str], float] = {}
+    vk_recent_reward: dict[tuple[str, str], float] = {}
+    VK_REWARD_DEDUPE_SECONDS = 30.0
 
     async def schedule(coro):
         try:
@@ -273,6 +276,19 @@ def create_app(root: Path) -> FastAPI:
     def on_twitch_status(data: dict):
         twitch_status.update(data)
 
+    def _vk_dedupe_key(username: str, text: str) -> tuple[str, str]:
+        return (
+            " ".join((username or "").casefold().split()),
+            " ".join((text or "").split()),
+        )
+
+    def _vk_prune_dedupe(now: float):
+        cutoff = now - VK_REWARD_DEDUPE_SECONDS
+        for bucket in (vk_recent_chat, vk_recent_reward):
+            for key, seen_at in list(bucket.items()):
+                if seen_at < cutoff:
+                    bucket.pop(key, None)
+
     def on_twitch_chat(event: dict):
         text = (event.get("message", {}) or {}).get("text", "").strip()
         if not text:
@@ -282,6 +298,7 @@ def create_app(root: Path) -> FastAPI:
         if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
         username = event.get("chatter_user_name", "unknown")
+        created_at = utc_now()
         db.save_chat_message(
             platform="twitch",
             message_id=event.get("message_id"),
@@ -290,20 +307,56 @@ def create_app(root: Path) -> FastAPI:
             user_id=event.get("chatter_user_id", ""),
             username=username,
             text=text,
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            created_at=created_at,
             raw_json=json.dumps(event, ensure_ascii=False),
         )
-        db.add_history(username, text, "twitch-chat", time.strftime("%Y-%m-%dT%H:%M:%S"), status="received", profile="normal")
+        try:
+            queue.enqueue(QueueItem(text, username, "twitch-chat", created_at=created_at), profile="normal")
+        except Exception as e:
+            db.add_history(username, text, "twitch-chat", created_at, status="received", profile="normal")
+            log.exception("Twitch chat message could not be queued: %s", e)
 
     def on_vk_chat(event: dict):
-        text = (event.get("text") or "").strip()
-        if not text:
+        raw_text = (event.get("text") or "").strip()
+        if not raw_text:
             return
         message_id = event.get("id")
         if message_id and not db.claim_event("vk:" + str(message_id)):
             return
-        username = event.get("username", "unknown")
-        created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+        username = (event.get("username") or "unknown").strip() or "unknown"
+        now = time.monotonic()
+        _vk_prune_dedupe(now)
+
+        reward = parse_vk_reward_announcement(raw_text)
+        reward_key = None
+        if reward and username.casefold() == "chatbot":
+            # VK's system event contains the real viewer text after the reward
+            # description. Only that viewer text belongs in TTS/history.
+            username = reward["username"]
+            text = reward["text"]
+            reward_key = _vk_dedupe_key(username, text)
+
+            # If the real viewer message was already processed, this is only
+            # VK's duplicate ChatBot system announcement. Do not speak/store it.
+            if reward_key in vk_recent_chat:
+                vk_recent_chat.pop(reward_key, None)
+                return
+        else:
+            if username.casefold() == "chatbot" and "получает награду:" in raw_text.casefold():
+                # Unknown reward types are system-only events, not user chat.
+                return
+            text = raw_text
+            normal_key = _vk_dedupe_key(username, text)
+
+            # If a reward system notice was processed first, VK's separate
+            # viewer message is the duplicate. The reward text was already
+            # sent to TTS, so do not enqueue it a second time.
+            if normal_key in vk_recent_reward:
+                vk_recent_reward.pop(normal_key, None)
+                return
+
+        created_at = utc_now()
         db.save_chat_message(
             platform="vkplay", message_id=event.get("id"),
             broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
@@ -311,14 +364,18 @@ def create_app(root: Path) -> FastAPI:
             created_at=created_at,
             raw_json=json.dumps(event, ensure_ascii=False),
         )
-        # VK chat is part of the voice-bot contract: persist the message and
-        # put it through the same normal TTS queue as admin messages.
         try:
-            item = QueueItem(text, username, "vkplay-chat")
-            queue.enqueue(item, profile="normal")
+            source = "vkplay-reward" if reward_key else "vkplay-chat"
+            queue.enqueue(
+                QueueItem(text, username, source, created_at=created_at),
+                profile="normal",
+            )
+            key = reward_key or _vk_dedupe_key(username, text)
+            if reward_key:
+                vk_recent_reward[key] = now
+            else:
+                vk_recent_chat[key] = now
         except Exception as e:
-            # Keep the received chat record when the message cannot be queued
-            # (for example, max length/queue validation rejects it).
             db.add_history(
                 username, text, "vkplay-chat", created_at,
                 status="received", profile="normal",
@@ -540,6 +597,11 @@ def create_app(root: Path) -> FastAPI:
     @app.get("/api/history")
     async def history(limit: int = 100):
         return db.history(limit)
+
+    @app.delete("/api/history")
+    async def clear_history():
+        removed = db.clear_history()
+        return {"ok": True, "removed": removed}
 
     @app.get("/api/audio/devices")
     async def audio_devices():

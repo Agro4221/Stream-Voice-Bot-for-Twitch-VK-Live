@@ -254,7 +254,10 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <section class="card wide">
   <div class="row" style="justify-content:space-between">
     <h2>История / повтор</h2>
-    <button class="secondary" onclick="repeatSelected()">Повторить выбранные</button>
+    <div class="actions">
+      <button class="secondary" onclick="repeatSelected()">Повторить выбранные</button>
+      <button class="danger" onclick="clearHistory()">Очистить историю</button>
+    </div>
   </div>
   <div class="history">
     <table>
@@ -273,6 +276,23 @@ async function api(url, options={}){
   return data;
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function formatHistoryTime(value){
+  const raw=String(value ?? '').trim();
+  if(!raw) return '';
+  let normalized=raw.includes('T') ? raw : raw.replace(' ','T');
+  // Historical rows can be naive UTC (without an offset). Treat them as UTC
+  // so old and new rows display in the same local timezone.
+  if(!/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)) normalized += 'Z';
+  const date=new Date(normalized);
+  if(Number.isNaN(date.getTime())) return raw;
+  const parts=new Intl.DateTimeFormat('ru-RU',{
+    day:'2-digit',month:'2-digit',year:'numeric',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',
+    hour12:false
+  }).formatToParts(date);
+  const get=(type)=>parts.find(p=>p.type===type)?.value||'';
+  return get('day')+'.'+get('month')+'.'+get('year')+' '+get('hour')+':'+get('minute')+':'+get('second');
+}
 let refreshBusy=false;
 
 function isUserEditing(el, serverValue){
@@ -484,7 +504,7 @@ async function refresh(){
     document.getElementById('history').innerHTML=h.map(x=>`
       <tr>
         <td><input type="checkbox" class="hist" value="${x.id}" ${selectedBefore.has(String(x.id))?'checked':''}></td>
-        <td>${esc(x.created_at)}</td>
+        <td title="${esc(x.created_at)}">${formatHistoryTime(x.created_at)}</td>
         <td>${esc(x.username)}</td>
         <td><span class="pill">${x.profile==='loud'?'Громкая':'Обычная'}</span></td>
         <td class="text">${esc(x.text)}</td>
@@ -564,6 +584,17 @@ async function repeatOne(id){
   const profile=(prompt('Профиль: normal или loud', 'normal')||'normal').toLowerCase();
   try{await api('/api/repeat/'+id+'?profile='+encodeURIComponent(profile),{method:'POST'});refresh()}catch(e){alert(e.message)}
 }
+async function clearHistory(){
+  if(!confirm('Удалить всю завершённую историю озвучки? Активная/стоящая в очереди озвучка не будет удалена.')) return;
+  try{
+    const x=await api('/api/history',{method:'DELETE'});
+    document.getElementById('status').textContent='История очищена: '+x.removed;
+    refresh();
+  }catch(e){
+    alert('Не удалось очистить историю: '+e.message);
+  }
+}
+
 async function repeatSelected(){
   const ids=[...document.querySelectorAll('.hist:checked')].map(x=>parseInt(x.value,10));
   if(!ids.length){alert('Выбери сообщения');return}
