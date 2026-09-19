@@ -55,7 +55,10 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <body>
 <header>
   <div><h1>Stream Voice Bot</h1><div class="small">TTS queue / Silero V5 / локальный аудиовывод / 2 профиля голоса</div></div>
-  <div id="status" class="pill">Подключение...</div>
+  <div class="row">
+    <div id="status" class="pill">Подключение...</div>
+    <button class="danger" type="button" onclick="shutdownBot()">Завершить работу</button>
+  </div>
 </header>
 
 <main>
@@ -269,6 +272,21 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 </main>
 
 <script>
+async function shutdownBot(){
+  if(!confirm('Завершить работу бота? Twitch, VK, STT и TTS будут корректно остановлены.')) return;
+  const button=document.querySelector('header button.danger');
+  if(button) button.disabled=true;
+  document.getElementById('status').textContent='Завершение работы…';
+  try{
+    await api('/api/shutdown',{method:'POST'});
+    document.getElementById('status').textContent='Бот завершает работу';
+  }catch(e){
+    if(button) button.disabled=false;
+    document.getElementById('status').textContent='Ошибка завершения';
+    alert('Не удалось завершить работу: '+e.message);
+  }
+}
+
 async function api(url, options={}){
   const r=await fetch(url,{headers:{'Content-Type':'application/json'},...options});
   const data=await r.json().catch(()=>({}));

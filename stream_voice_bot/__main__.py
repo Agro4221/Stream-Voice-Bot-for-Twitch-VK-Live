@@ -19,9 +19,13 @@ os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(ROOT / ".cache" / "huggingfac
 app = create_app(ROOT)
 
 if __name__ == "__main__":
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host="127.0.0.1",
         port=8787,
-        log_level="info",
+        log_level="warning",
+        access_log=False,
     )
+    server = uvicorn.Server(config)
+    app.state.server = server
+    server.run()

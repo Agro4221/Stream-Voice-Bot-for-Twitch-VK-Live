@@ -246,8 +246,9 @@ Stream Voice Bot/
 ├─ models/                 # локальные ML-модели
 ├─ data/                   # SQLite и локальные настройки
 ├─ scripts/                # установка и служебные скрипты
-├─ start_bot.bat           # запуск / автоустановка
-├─ start_bot_minimized.bat # запуск в отдельном окне
+├─ start_bot.bat           # запуск / автоустановка с консолью
+├─ start_bot_minimized.bat # запуск в минимизированном окне
+├─ start_bot_silent.bat    # запуск без консольного окна
 ├─ requirements.txt        # Python-зависимости
 └─ README.md
 ```
@@ -296,6 +297,14 @@ tools\diagnose_audio.bat
 ```text
 start_bot_minimized.bat
 ```
+
+Тихий запуск без окна консоли:
+
+```text
+start_bot_silent.bat
+```
+
+После запуска бот управляется из локальной админки. В шапке есть кнопка **«Завершить работу»** — она выполняет штатное завершение Twitch, VK, STT и TTS.
 
 ## 🗺️ Roadmap
 

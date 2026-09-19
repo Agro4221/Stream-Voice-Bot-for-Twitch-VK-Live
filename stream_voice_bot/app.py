@@ -598,6 +598,14 @@ def create_app(root: Path) -> FastAPI:
     async def history(limit: int = 100):
         return db.history(limit)
 
+    @app.post("/api/shutdown")
+    async def shutdown():
+        server = getattr(app.state, "server", None)
+        if server is None:
+            raise HTTPException(503, "Сервер запущен не через штатный launcher")
+        server.should_exit = True
+        return {"ok": True, "message": "Бот завершает работу…"}
+
     @app.delete("/api/history")
     async def clear_history():
         removed = db.clear_history()

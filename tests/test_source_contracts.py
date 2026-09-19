@@ -26,6 +26,17 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("await self._open_eventsub_socket(reconnect_url)", src)
         self.assertIn("await old_ws.close()", src)
 
+    def test_runtime_lifecycle_and_silent_launcher_contract(self):
+        main = self.read("stream_voice_bot/__main__.py")
+        silent = self.read("start_bot_silent.bat")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("access_log=False", main)
+        self.assertIn('log_level="warning"', main)
+        self.assertIn("app.state.server = server", main)
+        self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', silent)
+        self.assertIn('onclick="shutdownBot()"', web)
+        self.assertIn("await api('/api/shutdown',{method:'POST'})", web)
+
     def test_vk_watchdog_contract(self):
         src = self.read("stream_voice_bot/vk_bridge/bridge.js")
         self.assertIn('const WS_URL = "wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2";', src)
@@ -50,6 +61,10 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"cleared", "audio_error"', app)
         self.assertIn("def claim_event", db)
         self.assertIn("def mark_pending_history", db)
+        self.assertIn("def clear_history", db)
+        self.assertIn('@app.delete("/api/history")', app)
+        self.assertIn('@app.post("/api/shutdown")', app)
+        self.assertIn("server.should_exit = True", app)
 
     def test_stt_is_bounded_and_validated(self):
         src = self.read("stream_voice_bot/stt.py")
