@@ -32,6 +32,13 @@ class StabilityDatabaseTests(unittest.TestCase):
             {"username": "Jostik", "text": "Тест-Тест 123"},
         )
 
+    def test_vk_reward_chat_format_from_live_message(self):
+        event_text = "Jostik получает награду: Озвучить сообщение за 2\nТест-Тест 123"
+        self.assertEqual(
+            parse_vk_reward_announcement(event_text),
+            {"username": "Jostik", "text": "Тест-Тест 123"},
+        )
+
     def test_vk_reward_announcement_does_not_match_other_rewards(self):
         event_text = "ChatBot: Jostik получает награду: Другая награда за 2: Тест"
         self.assertIsNone(parse_vk_reward_announcement(event_text))
