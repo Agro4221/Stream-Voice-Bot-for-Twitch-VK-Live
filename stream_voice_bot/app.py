@@ -921,6 +921,7 @@ def create_app(root: Path) -> FastAPI:
     async def twitch_disconnect():
         await twitch.stop()
         return {"ok": True}
+
     @app.get("/api/twitch/rewards")
     async def twitch_rewards():
         if not twitch.access_token():
