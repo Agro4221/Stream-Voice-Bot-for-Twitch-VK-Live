@@ -30,8 +30,9 @@ if "%NEED_SETUP%"=="1" (
 
 echo.
 echo Starting Stream Voice Bot...
-echo Open http://127.0.0.1:8787
+echo Opening admin: http://127.0.0.1:8787
 echo.
+start "" powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
 "%~dp0.venv\Scripts\python.exe" -m stream_voice_bot
 if errorlevel 1 (
   echo.
