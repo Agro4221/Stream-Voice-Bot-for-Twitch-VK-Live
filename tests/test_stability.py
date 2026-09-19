@@ -4,9 +4,34 @@ from pathlib import Path
 
 from stream_voice_bot.db import Database
 from stream_voice_bot.vkplay import parse_vk_reward_announcement
+import stream_voice_bot.stt as stt_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
+    def test_stt_falls_back_to_device_supported_sample_rate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            service.config.sample_rate = 16000
+            service.config.input_device = 3
+
+            class FakeSD:
+                def query_devices(self, device=None, kind=None):
+                    self.queried = (device, kind)
+                    return {"default_samplerate": 48000}
+
+                def check_input_settings(self, **kwargs):
+                    if kwargs["samplerate"] != 48000:
+                        raise RuntimeError("unsupported")
+
+            real_sd = stt_module.sd
+            try:
+                stt_module.sd = FakeSD()
+                self.assertEqual(service._resolve_input_stream_rate(), 48000)
+                self.assertEqual(service.input_stream_sample_rate, 48000)
+            finally:
+                stt_module.sd = real_sd
+
     def test_event_claim_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
