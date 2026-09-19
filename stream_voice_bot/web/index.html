@@ -254,7 +254,10 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <section class="card wide">
   <div class="row" style="justify-content:space-between">
     <h2>История / повтор</h2>
-    <button class="secondary" onclick="repeatSelected()">Повторить выбранные</button>
+    <div class="actions">
+      <button class="secondary" onclick="repeatSelected()">Повторить выбранные</button>
+      <button class="danger" onclick="clearHistory()">Очистить историю</button>
+    </div>
   </div>
   <div class="history">
     <table>
@@ -581,6 +584,17 @@ async function repeatOne(id){
   const profile=(prompt('Профиль: normal или loud', 'normal')||'normal').toLowerCase();
   try{await api('/api/repeat/'+id+'?profile='+encodeURIComponent(profile),{method:'POST'});refresh()}catch(e){alert(e.message)}
 }
+async function clearHistory(){
+  if(!confirm('Удалить всю завершённую историю озвучки? Активная/стоящая в очереди озвучка не будет удалена.')) return;
+  try{
+    const x=await api('/api/history',{method:'DELETE'});
+    document.getElementById('status').textContent='История очищена: '+x.removed;
+    refresh();
+  }catch(e){
+    alert('Не удалось очистить историю: '+e.message);
+  }
+}
+
 async function repeatSelected(){
   const ids=[...document.querySelectorAll('.hist:checked')].map(x=>parseInt(x.value,10));
   if(!ids.length){alert('Выбери сообщения');return}
