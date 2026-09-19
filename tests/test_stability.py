@@ -33,11 +33,17 @@ class StabilityDatabaseTests(unittest.TestCase):
         )
 
     def test_vk_reward_chat_format_from_live_message(self):
-        event_text = "Jostik получает награду: Озвучить сообщение за 2\nТест-Тест 123"
-        self.assertEqual(
-            parse_vk_reward_announcement(event_text),
-            {"username": "Jostik", "text": "Тест-Тест 123"},
-        )
+        cases = [
+            "Jostik получает награду: Озвучить сообщение за 2\nТест-Тест 123",
+            "Jostik получает награду: Озвучить сообщение за 2 Тест-Тест 123",
+            "ChatBot: Jostik получает награду: Озвучить сообщение за 2: Тест-Тест 123",
+        ]
+        for event_text in cases:
+            with self.subTest(event_text=event_text):
+                self.assertEqual(
+                    parse_vk_reward_announcement(event_text),
+                    {"username": "Jostik", "text": "Тест-Тест 123"},
+                )
 
     def test_vk_reward_announcement_does_not_match_other_rewards(self):
         event_text = "ChatBot: Jostik получает награду: Другая награда за 2: Тест"
