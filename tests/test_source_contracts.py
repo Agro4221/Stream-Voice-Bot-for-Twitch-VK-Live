@@ -77,6 +77,8 @@ class StabilitySourceContractTests(unittest.TestCase):
     def test_stt_is_bounded_and_validated(self):
         src = self.read("stream_voice_bot/stt.py")
         self.assertIn("deque(maxlen=200)", src)
+        self.assertIn("def _resolve_input_stream_rate", src)
+        self.assertIn("resample_poly", src)
         self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
 
 
