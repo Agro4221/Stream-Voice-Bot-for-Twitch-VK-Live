@@ -21,6 +21,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
+from .log_buffer import clear as clear_runtime_logs
+from .log_buffer import get_logs, install as install_log_buffer
 from .models import QueueItem, utc_now
 from .stt import STTService
 from .tts import AudioPlayer, PlayerSettings, SileroV5, TTSQueue
