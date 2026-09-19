@@ -252,6 +252,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="small" style="margin-top:8px">Субтитры можно пока не использовать. Первый запуск модели STT может скачать модель с Hugging Face. На RTX 3060 сначала пробуем CUDA; при ошибке приложение автоматически попытается CPU.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
 </section>
+
 <section class="card wide">
   <h2>Очередь</h2>
   <div id="queue"></div>
@@ -510,7 +511,8 @@ async function refresh(){
     const sttInput=document.getElementById('stt_input');
     if(!sttInput.dataset.loaded){
       sttInput.innerHTML=dev.filter(d=>d.input_channels>0).map(d=>
-        `<option value="${d.id}">${d.id}: ${esc(d.name)} (${d.default_samplerate} Hz)</option>`).join('');      sttInput.dataset.loaded='1';
+        `<option value="${d.id}">${d.id}: ${esc(d.name)} (${d.default_samplerate} Hz)</option>`).join('');
+      sttInput.dataset.loaded='1';
     }
     writeServerValue('stt_input', s.stt.input_device===null || s.stt.input_device===undefined ? '' : s.stt.input_device);
 
@@ -783,7 +785,8 @@ function bindEditableState(id){
   const el=document.getElementById(id);
   if(!el) return;
   el.addEventListener('input',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });
-  el.addEventListener('change',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });}
+  el.addEventListener('change',()=>{ el.dataset.userEdited='1'; el.classList.add('dirty'); });
+}
 function clearEditableState(id){
   const el=document.getElementById(id);
   if(el){ delete el.dataset.userEdited; el.classList.remove('dirty'); }
