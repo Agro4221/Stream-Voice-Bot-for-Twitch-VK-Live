@@ -29,8 +29,9 @@ def normalize_channel(value: str) -> str:
 
 VK_REWARD_ANNOUNCEMENT_RE = re.compile(
     r"^\s*\*{0,2}(?:ChatBot:\s*)?(?P<username>[^*\r\n]+?)\s*\*{0,2}\s*"
-    r"получает\s+награду:\s*Озвучить\s+сообщение\s+за\s+"
-    r"\d[\d\s.,]*\s*:?[\s\r\n]*(?P<text>.+?)\s*$",
+    r"получает\s+награду"
+    r"(?:\s*:\s*Озвучить\s+сообщение)?"
+    r"\s+за\s+\d[\d\s.,]*\s*:?[\s\r\n]*(?P<text>.+?)\s*$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -46,7 +47,6 @@ def parse_vk_reward_announcement(text: str) -> dict | None:
     if not username or not user_text:
         return None
     return {"username": username, "text": user_text}
-
 
 
 class VKPlayService:
