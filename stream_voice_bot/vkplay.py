@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 
@@ -24,6 +25,26 @@ def normalize_channel(value: str) -> str:
     raw = raw.split("/", 1)[-1] if "/" in raw else raw
     raw = raw.split("?", 1)[0].split("#", 1)[0].strip().strip("/")
     return raw
+
+
+VK_REWARD_ANNOUNCEMENT_RE = re.compile(
+    r"^\\s*\\*{0,2}ChatBot:\\s*(?P<username>[^*\\r\\n]+?)\\s*\\*{0,2}\\s+"
+    r"получает\\s+награду:\\s*Озвучить\\s+сообщение\\s+за\\s+"
+    r"\\d[\\d\\s.,]*\\s*:\\s*(?P<text>.+?)\\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def parse_vk_reward_announcement(text: str) -> dict | None:
+    """Extract the viewer and text from VK's reward system chat notice."""
+    match = VK_REWARD_ANNOUNCEMENT_RE.match((text or "").strip())
+    if not match:
+        return None
+    username = match.group("username").strip()
+    user_text = match.group("text").strip()
+    if not username or not user_text:
+        return None
+    return {"username": username, "text": user_text}
 
 
 class VKPlayService:
