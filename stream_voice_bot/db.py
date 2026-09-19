@@ -118,6 +118,14 @@ class Database:
                 (max_rows,),
             )
 
+    def clear_history(self):
+        """Delete only terminal history rows; never remove active/queued TTS state."""
+        with self.lock, self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM history WHERE status NOT IN ('queued', 'playing')"
+            )
+            return cur.rowcount
+
     def history(self, limit=100):
         with self.lock, self._connect() as conn:
             rows = conn.execute("SELECT id,username,text,source,created_at,queued_at,started_at,finished_at,duration_sec,status,repeat_of,profile FROM history ORDER BY id DESC LIMIT ?", (max(1,min(limit,500)),)).fetchall()
