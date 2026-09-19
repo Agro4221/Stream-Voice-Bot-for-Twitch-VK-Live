@@ -20,7 +20,7 @@ jobs:
         run: |
           version="$(tr -d '\r\n' < VERSION)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          test "$version" = "1.0.3"
+          test -n "$version"
 
       - name: Check whether release already exists
         id: existing
@@ -34,7 +34,7 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish v1.0.3
+      - name: Publish release
         if: steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
