@@ -24,6 +24,22 @@ class StabilityDatabaseTests(unittest.TestCase):
             self.assertEqual(db.get_history(first)["status"], "cleared")
             self.assertEqual(db.get_history(second)["status"], "playing")
 
+    def test_clear_history_removes_only_terminal_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            finished = db.add_history("u1", "finished", "vkplay-chat", "2026-09-18T20:00:00", status="finished")
+            received = db.add_history("u2", "received", "twitch-chat", "2026-09-18T20:00:01", status="received")
+            queued = db.add_history("u3", "queued", "vkplay-chat", "2026-09-18T20:00:02", status="queued")
+            playing = db.add_history("u4", "playing", "twitch-chat", "2026-09-18T20:00:03", status="playing")
+
+            removed = db.clear_history()
+
+            self.assertEqual(removed, 2)
+            self.assertIsNone(db.get_history(finished))
+            self.assertIsNone(db.get_history(received))
+            self.assertEqual(db.get_history(queued)["status"], "queued")
+            self.assertEqual(db.get_history(playing)["status"], "playing")
+
 
     def test_vk_reward_announcement_extracts_viewer_text(self):
         event_text = "**ChatBot: Jostik** получает награду: Озвучить сообщение за 2: Тест-Тест 123"
