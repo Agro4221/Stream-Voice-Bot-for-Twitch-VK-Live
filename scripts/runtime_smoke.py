@@ -159,6 +159,15 @@ def main() -> None:
                 )
                 assert invalid_stt.status_code == 400, invalid_stt.text
 
+                class FakeServer:
+                    should_exit = False
+
+                fake_server = FakeServer()
+                app.state.server = fake_server
+                shutdown = await client.post("/api/shutdown")
+                assert shutdown.status_code == 200, shutdown.text
+                assert fake_server.should_exit is True
+
         asyncio.run(exercise_http())
         app.state.tts_queue.shutdown()
 
