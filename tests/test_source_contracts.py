@@ -37,6 +37,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         app = self.read("stream_voice_bot/app.py")
         db = self.read("stream_voice_bot/db.py")
         self.assertIn('db.claim_event("twitch:" + str(dedupe_id))', app)
+        self.assertIn('queue.enqueue(QueueItem(text, username, "twitch-chat"), profile="normal")', app)
+        self.assertIn("def parse_vk_reward_announcement", app)
         self.assertIn('"cleared", "audio_error"', app)
         self.assertIn("def claim_event", db)
         self.assertIn("def mark_pending_history", db)
