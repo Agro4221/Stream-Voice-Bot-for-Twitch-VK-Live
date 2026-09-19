@@ -65,13 +65,25 @@ class StabilityDatabaseTests(unittest.TestCase):
             self.assertEqual(db.get_history(queued)["status"], "queued")
             self.assertEqual(db.get_history(playing)["status"], "playing")
 
-
     def test_vk_reward_announcement_extracts_viewer_text(self):
         event_text = "**ChatBot: Jostik** получает награду: Озвучить сообщение за 2: Тест-Тест 123"
         self.assertEqual(
             parse_vk_reward_announcement(event_text),
             {"username": "Jostik", "text": "Тест-Тест 123"},
         )
+
+    def test_vk_reward_announcement_without_reward_title_extracts_viewer_text(self):
+        cases = [
+            "ChatBot: Jostik получает награду за 2: Привет лох!",
+            "Jostik получает награду за 2 Привет лох!",
+            "**ChatBot: Jostik** получает награду за 2\nПривет лох!",
+        ]
+        for event_text in cases:
+            with self.subTest(event_text=event_text):
+                self.assertEqual(
+                    parse_vk_reward_announcement(event_text),
+                    {"username": "Jostik", "text": "Привет лох!"},
+                )
 
     def test_vk_reward_chat_format_from_live_message(self):
         cases = [
@@ -94,8 +106,13 @@ class StabilityDatabaseTests(unittest.TestCase):
                 )
 
     def test_vk_reward_announcement_does_not_match_other_rewards(self):
-        event_text = "ChatBot: Jostik получает награду: Другая награда за 2: Тест"
-        self.assertIsNone(parse_vk_reward_announcement(event_text))
+        cases = [
+            "ChatBot: Jostik получает награду: Другая награда за 2: Тест",
+            "ChatBot: Jostik получает награду за 2: Тест",
+        ]
+        for event_text in cases:
+            with self.subTest(event_text=event_text):
+                self.assertIsNone(parse_vk_reward_announcement(event_text))
 
 if __name__ == "__main__":
     unittest.main()
