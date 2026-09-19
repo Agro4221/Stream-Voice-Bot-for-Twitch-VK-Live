@@ -231,6 +231,7 @@ class VKPlayService:
             text = line.decode("utf-8", errors="replace").rstrip()
             if text:
                 self.last_stderr = text
+                log.warning("VK bridge: %s", text)
                 self.on_status({
                     "connected": self.proc is proc,
                     "message": text,
