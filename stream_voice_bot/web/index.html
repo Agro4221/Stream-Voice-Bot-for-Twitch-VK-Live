@@ -279,7 +279,9 @@ async function shutdownBot(){
   document.getElementById('status').textContent='Завершение работы…';
   try{
     await api('/api/shutdown',{method:'POST'});
-    document.getElementById('status').textContent='Бот завершает работу';
+    if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
+    document.getElementById('status').textContent='Бот остановлен — окно можно закрыть';
+    document.title='Stream Voice Bot — остановлен';
   }catch(e){
     if(button) button.disabled=false;
     document.getElementById('status').textContent='Ошибка завершения';
@@ -312,6 +314,7 @@ function formatHistoryTime(value){
   return get('day')+'.'+get('month')+'.'+get('year')+' '+get('hour')+':'+get('minute')+':'+get('second');
 }
 let refreshBusy=false;
+let refreshTimer=null;
 
 function isUserEditing(el, serverValue){
   if(!el) return true;
@@ -619,7 +622,8 @@ async function repeatSelected(){
   const profile=(prompt('Профиль: normal или loud', 'normal')||'normal').toLowerCase();
   try{await api('/api/repeat-many',{method:'POST',body:JSON.stringify({ids,profile})});refresh()}catch(e){alert(e.message)}
 }
-refresh();setInterval(refresh,1500);
+refresh();
+refreshTimer=setInterval(refresh,1500);
 
 async function saveTwitch(){
   try{

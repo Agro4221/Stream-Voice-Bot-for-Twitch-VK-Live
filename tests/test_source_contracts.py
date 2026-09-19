@@ -32,10 +32,18 @@ class StabilitySourceContractTests(unittest.TestCase):
         web = self.read("stream_voice_bot/web/index.html")
         self.assertIn("access_log=False", main)
         self.assertIn('log_level="warning"', main)
+        helper = self.read("scripts/open_admin.ps1")
+        self.assertIn("access_log=False", main)
+        self.assertIn('log_level="warning"', main)
         self.assertIn("app.state.server = server", main)
         self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', silent)
+        self.assertIn('start "" powershell.exe -NoProfile -WindowStyle Hidden', silent)
+        self.assertIn("127.0.0.1:8787", helper)
+        self.assertIn("Invoke-WebRequest", helper)
+        self.assertIn("Start-Process $Url", helper)
         self.assertIn('onclick="shutdownBot()"', web)
         self.assertIn("await api('/api/shutdown',{method:'POST'})", web)
+        self.assertIn("refreshTimer=null", web)
 
     def test_vk_watchdog_contract(self):
         src = self.read("stream_voice_bot/vk_bridge/bridge.js")

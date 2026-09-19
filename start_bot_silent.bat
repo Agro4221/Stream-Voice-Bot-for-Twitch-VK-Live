@@ -35,4 +35,5 @@ if not exist ".venv\Scripts\pythonw.exe" (
 )
 
 start "" "%~dp0.venv\Scripts\pythonw.exe" -m stream_voice_bot
+start "" powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
 exit /b 0
