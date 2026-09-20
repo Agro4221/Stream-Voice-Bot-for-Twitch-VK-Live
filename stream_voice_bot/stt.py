@@ -205,10 +205,10 @@ class STTService:
         else:
             self.audio_q.append(np.asarray(indata, dtype=np.float32).copy())
 
-    def _candidate_input_rates(self) -> tuple[int, list[int], int, str]:
+    def _candidate_input_rates(self, device_override=None) -> tuple[int, list[int], int, str, object]:
         """Build a deterministic list of rates to try for a Windows input device."""
         requested = max(1, int(self.config.sample_rate))
-        device = self.config.input_device
+        device = self.config.input_device if device_override is None else device_override
         try:
             info = sd.query_devices(device, kind="input")
         except TypeError:
@@ -241,7 +241,7 @@ class STTService:
             rate = int(rate)
             if rate > 0 and rate not in candidates:
                 candidates.append(rate)
-        return requested, candidates, max_input_channels, hostapi_name
+        return requested, candidates, max_input_channels, hostapi_name, device
 
     def _open_input_stream(self):
         """
@@ -250,73 +250,89 @@ class STTService:
         system audio mixer convert sample rates/channel layouts when the
         requested format doesn't exactly match the device mix format.
         """
-        requested, rates, max_input_channels, hostapi_name = self._candidate_input_rates()
+        requested_device = self.config.input_device
+        device_candidates = [requested_device]
+        if requested_device is not None:
+            device_candidates.append(None)
+
         errors = []
+        first_device_failed = False
 
-        is_wasapi = "WASAPI" in hostapi_name.upper()
-        channels = [1]
-        if max_input_channels >= 2:
-            channels.append(2)
+        for device_override in device_candidates:
+            requested, rates, max_input_channels, hostapi_name, actual_device = self._candidate_input_rates(device_override)
+            is_wasapi = "WASAPI" in hostapi_name.upper()
+            channels = [1]
+            if max_input_channels >= 2:
+                channels.append(2)
 
-        extra_settings_variants = [None]
-        if is_wasapi and hasattr(sd, "WasapiSettings"):
-            try:
-                extra_settings_variants = [
-                    sd.WasapiSettings(auto_convert=True),
-                    None,
-                ]
-            except Exception:
-                extra_settings_variants = [None]
+            extra_settings_variants = [None]
+            if is_wasapi and hasattr(sd, "WasapiSettings"):
+                try:
+                    extra_settings_variants = [
+                        sd.WasapiSettings(auto_convert=True),
+                        None,
+                    ]
+                except Exception:
+                    extra_settings_variants = [None]
 
-        # First try the device's native/default sample rate by leaving
-        # samplerate unspecified. This avoids forcing an unsupported format
-        # on Windows devices with unusual or fixed mix formats.
-        # Fixed-rate attempts remain as fallbacks so Whisper can still receive
-        # arbitrary device formats after local resampling.
-        attempts = []
-        for extra_settings in extra_settings_variants:
-            for channel_count in channels:
-                attempts.append((None, channel_count, extra_settings))
-            for channel_count in channels:
-                for rate in rates:
-                    attempts.append((rate, channel_count, extra_settings))
+            # First try the device's native/default sample rate by leaving
+            # samplerate unspecified. Fixed-rate attempts remain as fallbacks.
+            attempts = []
+            for extra_settings in extra_settings_variants:
+                for channel_count in channels:
+                    attempts.append((None, channel_count, extra_settings))
+                for channel_count in channels:
+                    for rate in rates:
+                        attempts.append((rate, channel_count, extra_settings))
 
-        for rate, channel_count, extra_settings in attempts:
-            stream = None
-            try:
-                kwargs = {
-                    "device": self.config.input_device,
-                    "channels": channel_count,
-                    "dtype": "float32",
-                    "callback": self._callback,
-                    "blocksize": 0,
-                }
-                if rate is not None:
-                    kwargs["samplerate"] = rate
-                if extra_settings is not None:
-                    kwargs["extra_settings"] = extra_settings
-                stream = sd.InputStream(**kwargs)
-                stream.start()
-                actual_rate = float(getattr(stream, "samplerate", 0.0) or 0.0)
-                if actual_rate <= 0:
-                    actual_rate = float(rate or 0.0)
-                if actual_rate <= 0:
-                    raise RuntimeError("PortAudio did not report an input sample rate")
-                actual_rate_int = int(round(actual_rate))
-                self.input_stream_sample_rate = actual_rate_int
-                return stream, actual_rate_int
-            except Exception as e:
-                label_rate = f"{rate} Hz" if rate is not None else "device default"
-                mode = "WASAPI auto-convert" if extra_settings is not None else "default"
-                errors.append(
-                    f"{label_rate}/{channel_count}ch [{mode}]: "
-                    f"{type(e).__name__}: {e}"
-                )
-                if stream is not None:
-                    try:
-                        stream.close()
-                    except Exception:
-                        pass
+            for rate, channel_count, extra_settings in attempts:
+                stream = None
+                try:
+                    kwargs = {
+                        "device": actual_device,
+                        "channels": channel_count,
+                        "dtype": "float32",
+                        "callback": self._callback,
+                        "blocksize": 0,
+                    }
+                    if rate is not None:
+                        kwargs["samplerate"] = rate
+                    if extra_settings is not None:
+                        kwargs["extra_settings"] = extra_settings
+                    stream = sd.InputStream(**kwargs)
+                    stream.start()
+                    actual_rate = float(getattr(stream, "samplerate", 0.0) or 0.0)
+                    if actual_rate <= 0:
+                        actual_rate = float(rate or 0.0)
+                    if actual_rate <= 0:
+                        raise RuntimeError("PortAudio did not report an input sample rate")
+                    actual_rate_int = int(round(actual_rate))
+                    self.input_stream_sample_rate = actual_rate_int
+                    if requested_device is not None and actual_device is None:
+                        self._emit(
+                            running=True,
+                            message="Выбранный STT input не открылся; использую системный микрофон по умолчанию."
+                        )
+                    return stream, actual_rate_int
+                except Exception as e:
+                    label_rate = f"{rate} Hz" if rate is not None else "device default"
+                    mode = "WASAPI auto-convert" if extra_settings is not None else "default"
+                    device_label = "default input" if actual_device is None else f"device {actual_device}"
+                    errors.append(
+                        f"{device_label}: {label_rate}/{channel_count}ch [{mode}]: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except Exception:
+                            pass
+
+        raise RuntimeError(
+            "Не удалось открыть микрофон. "
+            f"Запрошено {requested} Hz; выбранный input={requested_device!r}. "
+            + " | ".join(errors)
+        )
 
         raise RuntimeError(
             "Не удалось открыть микрофон. "
