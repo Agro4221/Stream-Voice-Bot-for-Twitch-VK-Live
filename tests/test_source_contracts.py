@@ -72,7 +72,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('db.claim_event("twitch:" + str(dedupe_id))', app)
         self.assertIn('queue.enqueue(QueueItem(text, username, "twitch-chat", created_at=created_at), profile="normal")', app)
         self.assertIn("from .models import QueueItem, utc_now", app)
-        self.assertIn('source = "vkplay-reward" if reward_key else "vkplay-chat"', app)
+        self.assertIn('QueueItem(text, username, "vkplay-reward", created_at=created_at)', app)
         self.assertIn("parse_vk_reward_announcement(raw_text)", app)
         self.assertIn('username.casefold() == "chatbot" and "получает награду:" in raw_text.casefold()', app)
         self.assertIn("QueueItem(text, username, source, created_at=created_at)", app)
