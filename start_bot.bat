@@ -36,32 +36,33 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 echo Checking Python application startup...
-".venv\Scripts\python.exe" -c "from pathlib import Path; from stream_voice_bot.app import create_app; a=create_app(Path.cwd()); a.state.tts_queue.shutdown(); print('Startup preflight: OK')" 
+".venv\Scripts\python.exe" -c "from pathlib import Path; from stream_voice_bot.app import create_app; a=create_app(Path.cwd()); a.state.tts_queue.shutdown(); print('Startup preflight: OK')"
 if errorlevel 1 (
   echo.
-  echo [ERROR] Stream Voice Bot could not start.
-  echo Use start_bot_debug.bat for the full traceback.
+  echo [ERROR] Stream Voice Bot preflight failed.
+  echo Run start_bot_debug.bat for the full traceback.
   pause
   exit /b 1
 )
 
 echo Starting Stream Voice Bot...
-if not exist ".venv\Scripts\pythonw.exe" (
-  echo [ERROR] Python windowless runtime not found.
-  pause
-  exit /b 1
-)
-start "" "%~dp0.venv\Scripts\pythonw.exe" -m stream_voice_bot
+echo Admin: http://127.0.0.1:8787
+echo.
+echo The bot is intentionally running in this console so startup errors
+echo cannot be hidden by pythonw.exe. Keep this window open while the bot runs.
+echo.
 
-rem Wait until the local server is ready and open the admin page.
-rem open_admin.ps1 is hidden during the normal launch.
-powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
-if errorlevel 1 (
-  echo.
-  echo [ERROR] Admin page did not become available within 120 seconds.
-  echo Run start_bot_debug.bat to diagnose startup problems.
-  pause
-  exit /b 1
-)
+rem Open the admin page in the background after the server becomes ready.
+start "" powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
 
-exit /b 0
+rem Keep the real Python process attached to this console.
+rem This makes any startup/runtime traceback immediately visible.
+"%~dp0.venv\Scripts\python.exe" -m stream_voice_bot
+set "EXIT_CODE=%ERRORLEVEL%"
+
+echo.
+echo ===============================================
+echo Stream Voice Bot stopped. Exit code: %EXIT_CODE%
+echo ===============================================
+pause
+exit /b %EXIT_CODE%
