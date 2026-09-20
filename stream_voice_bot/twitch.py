@@ -342,15 +342,8 @@ class TwitchService:
     async def _subscribe(self):
         if not self.identity:
             await self.identify()
-        # One EventSub WebSocket session with both required topics.
-        await self.create_subscription(
-            "channel.chat.message",
-            "1",
-            {
-                "broadcaster_user_id": self.identity.user_id,
-                "user_id": self.identity.user_id,
-            },
-        )
+        # Only Channel Points redemptions drive TTS. Ordinary chat is
+        # deliberately not subscribed here.
         await self.create_subscription(
             "channel.channel_points_custom_reward_redemption.add",
             "1",
@@ -460,12 +453,7 @@ class TwitchService:
                     # a redelivery even when the payload itself has no id.
                     if meta.get("message_id"):
                         event = {**event, "_eventsub_message_id": meta["message_id"]}
-                    if event_type == "channel.chat.message":
-                        try:
-                            self.on_chat(event)
-                        except Exception:
-                            log.exception("Chat event handler failed")
-                    elif event_type == "channel.channel_points_custom_reward_redemption.add":
+                    if event_type == "channel.channel_points_custom_reward_redemption.add":
                         try:
                             self.on_redemption(event)
                         except Exception:
