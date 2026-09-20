@@ -55,6 +55,35 @@ class StabilityDatabaseTests(unittest.TestCase):
             finally:
                 stt_module.sd = real_sd
 
+
+    def test_legacy_chat_messages_schema_is_migrated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.sqlite3"
+            import sqlite3
+            conn = sqlite3.connect(path)
+            conn.execute("""
+                CREATE TABLE chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL DEFAULT 'twitch',
+                    username TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+            conn.close()
+
+            db = Database(path)
+            db.save_chat_message(
+                "vkplay", "42", "channel", "", "", "Jostik",
+                "Привет", "2026-09-20T07:00:00", "{}"
+            )
+
+            with db._connect() as conn:
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(chat_messages)").fetchall()}
+            for name in {"message_id", "broadcaster_user_id", "broadcaster_login", "user_id", "raw_json"}:
+                self.assertIn(name, columns)
+
     def test_runtime_log_buffer_collects_messages(self):
         log_buffer.install()
         log_buffer.clear()
