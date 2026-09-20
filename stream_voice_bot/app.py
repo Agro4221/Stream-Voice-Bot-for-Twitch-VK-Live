@@ -297,99 +297,54 @@ def create_app(root: Path) -> FastAPI:
                     bucket.pop(key, None)
 
     def on_twitch_chat(event: dict):
-        text = (event.get("message", {}) or {}).get("text", "").strip()
-        if not text:
+        # Normal Twitch chat is intentionally ignored here. Channel Points
+        # redemptions arrive through EventSub redemption events and are handled
+        # by on_redemption(); otherwise every ordinary chat message would be
+        # spoken as if it were a reward.
+        return
+
+    def on_vk_chat(event: dict):
+        raw_text = (event.get("text") or "").strip()
+        if not raw_text:
             return
-        message_id = event.get("message_id")
-        dedupe_id = event.get("_eventsub_message_id") or message_id
-        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
+
+        # VK exposes the reward as a system chat announcement such as:
+        # "ChatBot: User получает награду: Озвучить сообщение за 2: текст".
+        # Ordinary viewer messages are never TTS input.
+        reward = parse_vk_reward_announcement(raw_text)
+        if not reward:
             return
-        username = event.get("chatter_user_name", "unknown")
+
+        message_id = event.get("id")
+        if message_id and not db.claim_event("vk:" + str(message_id)):
+            return
+
+        username = reward["username"]
+        text = reward["text"]
         created_at = utc_now()
         db.save_chat_message(
-            platform="twitch",
-            message_id=event.get("message_id"),
-            broadcaster_user_id=event.get("broadcaster_user_id", ""),
-            broadcaster_login=event.get("broadcaster_user_login", ""),
-            user_id=event.get("chatter_user_id", ""),
+            platform="vkplay",
+            message_id=message_id,
+            broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
+            broadcaster_login="",
+            user_id="",
             username=username,
             text=text,
             created_at=created_at,
             raw_json=json.dumps(event, ensure_ascii=False),
         )
         try:
-            queue.enqueue(QueueItem(text, username, "twitch-chat", created_at=created_at), profile="normal")
-        except Exception as e:
-            db.add_history(username, text, "twitch-chat", created_at, status="received", profile="normal")
-            log.exception("Twitch chat message could not be queued: %s", e)
-
-    def on_vk_chat(event: dict):
-        raw_text = (event.get("text") or "").strip()
-        if not raw_text:
-            return
-        message_id = event.get("id")
-        if message_id and not db.claim_event("vk:" + str(message_id)):
-            return
-
-        username = (event.get("username") or "unknown").strip() or "unknown"
-        now = time.monotonic()
-        _vk_prune_dedupe(now)
-
-        reward = parse_vk_reward_announcement(raw_text)
-        reward_key = None
-        if reward:
-            # VK normally labels this system message as "ChatBot", but the
-            # author label is presentation data and can change independently
-            # of the reward payload. Trust the strict reward parser instead.
-            username = reward["username"]
-            text = reward["text"]
-            reward_key = _vk_dedupe_key(username, text)
-            log.info("VK reward announcement parsed: user=%s", username)
-
-            # If the real viewer message was already processed, this is only
-            # VK's duplicate system announcement. Do not speak/store it.
-            if reward_key in vk_recent_chat:
-                vk_recent_chat.pop(reward_key, None)
-                return
-        else:
-            if username.casefold() == "chatbot" and "получает награду:" in raw_text.casefold():
-                # Unknown reward types are system-only events, not user chat.
-                return
-            text = raw_text
-            normal_key = _vk_dedupe_key(username, text)
-
-            # If a reward system notice was processed first, VK's separate
-            # viewer message is the duplicate. The reward text was already
-            # sent to TTS, so do not enqueue it a second time.
-            if normal_key in vk_recent_reward:
-                vk_recent_reward.pop(normal_key, None)
-                return
-
-        created_at = utc_now()
-        db.save_chat_message(
-            platform="vkplay", message_id=event.get("id"),
-            broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
-            broadcaster_login="", user_id="", username=username, text=text,
-            created_at=created_at,
-            raw_json=json.dumps(event, ensure_ascii=False),
-        )
-        try:
-            source = "vkplay-reward" if reward_key else "vkplay-chat"
             queue.enqueue(
-                QueueItem(text, username, source, created_at=created_at),
+                QueueItem(text, username, "vkplay-reward", created_at=created_at),
                 profile="normal",
             )
-            key = reward_key or _vk_dedupe_key(username, text)
-            if reward_key:
-                vk_recent_reward[key] = now
-            else:
-                vk_recent_chat[key] = now
+            log.info("VK reward queued: user=%s", username)
         except Exception as e:
             db.add_history(
-                username, text, "vkplay-chat", created_at,
+                username, text, "vkplay-reward", created_at,
                 status="received", profile="normal",
             )
-            log.exception("VK chat message could not be queued: %s", e)
+            log.exception("VK reward could not be queued: %s", e)
 
     def on_vk_status(data: dict):
         vk_status.update(data)
