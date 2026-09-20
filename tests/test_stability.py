@@ -39,7 +39,10 @@ class StabilityDatabaseTests(unittest.TestCase):
 
                 def query_devices(self, device=None, kind=None):
                     self.queried = (device, kind)
-                    return {"default_samplerate": 48000, "max_input_channels": 1, "name": "Mock mic"}
+                    return {"default_samplerate": 48000, "max_input_channels": 1, "name": "Mock mic", "hostapi": 0}
+
+                def query_hostapis(self, index):
+                    return {"name": "Windows DirectSound"}
 
                 def InputStream(self, **kwargs):
                     return FakeStream(kwargs["samplerate"])
