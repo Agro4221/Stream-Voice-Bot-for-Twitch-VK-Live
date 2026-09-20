@@ -95,6 +95,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("stream = sd.InputStream(", src)
         self.assertIn("stream.start()", src)
         self.assertIn("resample_poly", src)
+        self.assertIn("CoInitialize(None)", src)
+        self.assertIn("CoUninitialize()", src)
         self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
 
 
