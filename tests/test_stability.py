@@ -45,7 +45,8 @@ class StabilityDatabaseTests(unittest.TestCase):
                     return {"name": "Windows DirectSound"}
 
                 def InputStream(self, **kwargs):
-                    return FakeStream(kwargs["samplerate"])
+                    rate = kwargs.get("samplerate", 48000)
+                    return FakeStream(rate)
 
             real_sd = stt_module.sd
             try:
