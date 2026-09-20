@@ -6,7 +6,14 @@ const selfTest = input === "--self-test";
 function normalizeChannel(value) {
   let s = String(value || "").trim();
   s = s.replace(/^https?:\/\//i, "");
-  if (s.includes("/")) {\n    const parts = s.split("/").filter(Boolean);\n    if (parts.length >= 2 && /(^|\\.)vkvideo\\.ru$/i.test(parts[0])) {\n      s = parts[1];\n    } else {\n      s = parts[0] || "";\n    }\n  }
+  if (s.includes("/")) {
+    const parts = s.split("/").filter(Boolean);
+    if (parts.length >= 2 && /(^|\.)vkvideo\.ru$/i.test(parts[0])) {
+      s = parts[1];
+    } else {
+      s = parts[0] || "";
+    }
+  }
   return s.split("?")[0].split("#")[0].replace(/^\/+|\/+$/g, "");
 }
 
@@ -121,26 +128,26 @@ async function main() {
     client.on("channel-info", (ctx) => {
       emitStatus(
         true,
-        `VK channel info: online=${Boolean(ctx?.isOnline)} viewers=${Number(ctx?.viewers || 0)}`,
+        "VK channel info: online=" + Boolean(ctx?.isOnline) + " viewers=" + Number(ctx?.viewers || 0),
         channel,
       );
     });
 
     client.on("stream-status", (ctx) => {
-      emitStatus(true, `VK event: ${String(ctx?.type || "stream-status")}`, channel);
+      emitStatus(true, "VK event: " + String(ctx?.type || "stream-status"), channel);
     });
 
     client.on("reconnect", () => {
       emitStatus(true, "VK Video Live chat reconnected", channel);
     });
 
-    emitStatus(false, `Connecting to https://live.vkvideo.ru/${channel} via vklive-message-client`, channel);
+    emitStatus(false, "Connecting to https://live.vkvideo.ru/" + channel + " via vklive-message-client", channel);
     await client.connect();
-    emitStatus(true, `VK Video Live chat connected: ${channel}`, channel);
+    emitStatus(true, "VK Video Live chat connected: " + channel, channel);
 
     await new Promise(() => {});
   } catch (error) {
-    emitStatus(false, `VK bridge error: ${error?.message || error}`, channel);
+    emitStatus(false, "VK bridge error: " + (error?.message || error), channel);
     console.error(String(error?.stack || error));
     process.exit(1);
   }
