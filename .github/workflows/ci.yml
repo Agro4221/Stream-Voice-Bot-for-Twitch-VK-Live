@@ -26,6 +26,10 @@ jobs:
         shell: pwsh
         run: |
           python -c "import stream_voice_bot.db; import stream_voice_bot.models"
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Stability tests
         shell: pwsh
         run: |
