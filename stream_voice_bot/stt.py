@@ -229,40 +229,78 @@ class STTService:
         except (KeyError, TypeError, ValueError) as e:
             raise RuntimeError("Не удалось определить стандартную частоту микрофона") from e
 
+        try:
+            hostapi_index = int(info.get("hostapi", -1))
+            hostapi = sd.query_hostapis(hostapi_index) if hostapi_index >= 0 else {}
+            hostapi_name = str(hostapi.get("name") or "")
+        except Exception:
+            hostapi_name = ""
+
         candidates = []
         for rate in (requested, default_rate, 48000, 44100, 32000, 16000):
             rate = int(rate)
             if rate > 0 and rate not in candidates:
                 candidates.append(rate)
-        return requested, candidates
+        return requested, candidates, max_input_channels, hostapi_name
 
     def _open_input_stream(self):
         """
-        Open the real PortAudio stream, trying each candidate rate.
-
-        check_input_settings() is only a hint on Windows/WASAPI: the actual
-        InputStream open can still reject a format. Therefore the fallback is
-        performed against the real stream creation, not just validation.
+        Open the real PortAudio stream, trying practical Windows/WASAPI
+        format combinations. On WASAPI shared mode, auto_convert lets the
+        system audio mixer convert sample rates/channel layouts when the
+        requested format doesn't exactly match the device mix format.
         """
-        requested, candidates = self._candidate_input_rates()
+        requested, rates, max_input_channels, hostapi_name = self._candidate_input_rates()
         errors = []
 
-        for rate in candidates:
+        is_wasapi = "WASAPI" in hostapi_name.upper()
+        channels = [1]
+        if max_input_channels >= 2:
+            channels.append(2)
+
+        extra_settings_variants = [None]
+        if is_wasapi and hasattr(sd, "WasapiSettings"):
+            try:
+                extra_settings_variants = [
+                    sd.WasapiSettings(auto_convert=True),
+                    None,
+                ]
+            except Exception:
+                extra_settings_variants = [None]
+
+        # Prefer WASAPI shared-mode auto-conversion, then fall back to plain
+        # PortAudio formats. Try stereo as well because many Windows capture
+        # endpoints expose a 2-channel system mix format even when STT needs
+        # only one channel.
+        attempts = []
+        for extra_settings in extra_settings_variants:
+            for channel_count in channels:
+                for rate in rates:
+                    attempts.append((rate, channel_count, extra_settings))
+
+        for rate, channel_count, extra_settings in attempts:
             stream = None
             try:
-                stream = sd.InputStream(
-                    device=self.config.input_device,
-                    channels=1,
-                    samplerate=rate,
-                    dtype="float32",
-                    callback=self._callback,
-                    blocksize=0,
-                )
+                kwargs = {
+                    "device": self.config.input_device,
+                    "channels": channel_count,
+                    "samplerate": rate,
+                    "dtype": "float32",
+                    "callback": self._callback,
+                    "blocksize": 0,
+                }
+                if extra_settings is not None:
+                    kwargs["extra_settings"] = extra_settings
+                stream = sd.InputStream(**kwargs)
                 stream.start()
                 self.input_stream_sample_rate = rate
                 return stream, rate
             except Exception as e:
-                errors.append(f"{rate} Hz: {type(e).__name__}: {e}")
+                mode = "WASAPI auto-convert" if extra_settings is not None else "default"
+                errors.append(
+                    f"{rate} Hz/{channel_count}ch [{mode}]: "
+                    f"{type(e).__name__}: {e}"
+                )
                 if stream is not None:
                     try:
                         stream.close()
@@ -270,8 +308,9 @@ class STTService:
                         pass
 
         raise RuntimeError(
-            "Не удалось открыть микрофон ни на одной подходящей частоте. "
-            f"Запрошено {requested} Hz. "
+            "Не удалось открыть микрофон. "
+            f"Запрошено {requested} Hz; устройство сообщает {max_input_channels} входных каналов "
+            f"через {hostapi_name or 'PortAudio'}. "
             + " | ".join(errors)
         )
 
