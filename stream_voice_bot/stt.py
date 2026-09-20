@@ -205,44 +205,81 @@ class STTService:
         else:
             self.audio_q.append(np.asarray(indata, dtype=np.float32).copy())
 
-    def _resolve_input_stream_rate(self) -> int:
-        """Pick a sample rate the selected Windows input device accepts."""
+    def _candidate_input_rates(self) -> tuple[int, list[int]]:
+        """Build a deterministic list of rates to try for a Windows input device."""
         requested = max(1, int(self.config.sample_rate))
         device = self.config.input_device
         try:
             info = sd.query_devices(device, kind="input")
         except TypeError:
             info = sd.query_devices(device)
-        default_rate = int(round(float(info["default_samplerate"])))
+        except Exception as e:
+            raise RuntimeError(f"Не удалось получить сведения о микрофоне: {type(e).__name__}: {e}") from e
+
+        try:
+            max_input_channels = int(info.get("max_input_channels", 0))
+        except (TypeError, ValueError):
+            max_input_channels = 0
+        if max_input_channels <= 0:
+            name = str(info.get("name") or f"device {device}")
+            raise RuntimeError(f"У выбранного аудиоустройства нет входных каналов: {name}")
+
+        try:
+            default_rate = int(round(float(info["default_samplerate"])))
+        except (KeyError, TypeError, ValueError) as e:
+            raise RuntimeError("Не удалось определить стандартную частоту микрофона") from e
 
         candidates = []
         for rate in (requested, default_rate, 48000, 44100, 32000, 16000):
             rate = int(rate)
             if rate > 0 and rate not in candidates:
                 candidates.append(rate)
+        return requested, candidates
 
+    def _open_input_stream(self):
+        """
+        Open the real PortAudio stream, trying each candidate rate.
+
+        check_input_settings() is only a hint on Windows/WASAPI: the actual
+        InputStream open can still reject a format. Therefore the fallback is
+        performed against the real stream creation, not just validation.
+        """
+        requested, candidates = self._candidate_input_rates()
         errors = []
+
         for rate in candidates:
+            stream = None
             try:
-                sd.check_input_settings(
-                    device=device,
-                    samplerate=rate,
+                stream = sd.InputStream(
+                    device=self.config.input_device,
                     channels=1,
+                    samplerate=rate,
                     dtype="float32",
+                    callback=self._callback,
+                    blocksize=0,
                 )
+                stream.start()
                 self.input_stream_sample_rate = rate
-                return rate
+                return stream, rate
             except Exception as e:
                 errors.append(f"{rate} Hz: {type(e).__name__}: {e}")
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
 
-        raise RuntimeError("Микрофон не принимает ни одну из проверенных частот. "
-            f"Требуется {requested} Hz; default устройства {default_rate} Hz. "
-            + " | ".join(errors[-3:]))
+        raise RuntimeError(
+            "Не удалось открыть микрофон ни на одной подходящей частоте. "
+            f"Запрошено {requested} Hz. "
+            + " | ".join(errors)
+        )
 
     def _run(self):
         target_rate = max(1, int(self.config.sample_rate))
+        stream = None
         try:
-            input_rate = self._resolve_input_stream_rate()
+            stream, input_rate = self._open_input_stream()
             chunk_samples = int(round(input_rate * self.config.chunk_seconds))
             overlap_samples = int(round(input_rate * self.config.overlap_seconds))
             if input_rate != target_rate:
@@ -250,101 +287,93 @@ class STTService:
                     running=True,
                     message=f"Микрофон работает на {input_rate} Hz; для Whisper пересэмплирую в {target_rate} Hz.",
                 )
-            with sd.InputStream(
-                device=self.config.input_device,
-                channels=1,
-                samplerate=input_rate,
-                dtype="float32",
-                callback=self._callback,
-                blocksize=1600,
-                latency="low",
-            ):
-                buf = np.zeros(0, dtype=np.float32)
-                while not self.stop_event.is_set():
-                    if self.audio_q:
-                        buf = np.concatenate([buf, self.audio_q.popleft()])
-                    else:
-                        time.sleep(0.03)
-                        continue
 
-                    if len(buf) < chunk_samples:
-                        continue
+            buf = np.zeros(0, dtype=np.float32)
+            while not self.stop_event.is_set():
+                if self.audio_q:
+                    buf = np.concatenate([buf, self.audio_q.popleft()])
+                else:
+                    time.sleep(0.03)
+                    continue
 
-                    source_audio = buf[:chunk_samples]
-                    buf = buf[chunk_samples - overlap_samples:]
+                if len(buf) < chunk_samples:
+                    continue
 
-                    if input_rate != target_rate:
-                        audio = resample_poly(
-                            source_audio,
-                            target_rate,
-                            input_rate,
-                        ).astype(np.float32)
-                    else:
-                        audio = source_audio
+                source_audio = buf[:chunk_samples]
+                buf = buf[chunk_samples - overlap_samples:]
 
-                    try:
-                        segments, info = self.model.transcribe(
-                            audio,
-                            language=self.config.language or None,
-                            beam_size=self.config.beam_size,
-                            vad_filter=True,
-                            condition_on_previous_text=False,
-                            temperature=0,
-                        )
-                        texts = []
-                        start = None
-                        end = None
-                        for seg in segments:
-                            t = (seg.text or "").strip()
-                            if not t:
-                                continue
-                            texts.append(t)
-                            start = seg.start if start is None else min(start, seg.start)
-                            end = seg.end if end is None else max(end, seg.end)
+                if input_rate != target_rate:
+                    audio = resample_poly(
+                        source_audio,
+                        target_rate,
+                        input_rate,
+                    ).astype(np.float32)
+                else:
+                    audio = source_audio
 
-                        text = " ".join(texts).strip()
-                        if text:
-                            detected_language = getattr(info, "language", self.config.language) or self.config.language
-                            ts = time.time()
-                            self.last_text = text
-                            self.on_subtitle({
-                                "track_id": "ru" if detected_language.startswith("ru") else detected_language.lower(),
-                                "text": text,
-                                "start": start,
-                                "end": end,
-                                "language": detected_language,
-                                "timestamp": ts,
-                            })
+                try:
+                    segments, info = self.model.transcribe(
+                        audio,
+                        language=self.config.language or None,
+                        beam_size=self.config.beam_size,
+                        vad_filter=True,
+                        condition_on_previous_text=False,
+                        temperature=0,
+                    )
+                    texts = []
+                    start = None
+                    end = None
+                    for seg in segments:
+                        t = (seg.text or "").strip()
+                        if not t:
+                            continue
+                        texts.append(t)
+                        start = seg.start if start is None else min(start, seg.start)
+                        end = seg.end if end is None else max(end, seg.end)
 
-                            tracks = self.get_subtitle_tracks()
-                            if self.translator:
-                                for track in tracks:
-                                    if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
-                                        continue
-                                    target_language = str(track.get("language", "")).strip().lower().split("-")[0]
-                                    if not target_language or target_language == detected_language.lower().split("-")[0]:
-                                        continue
-                                    try:
-                                        translated = self.translator.translate(text, detected_language, target_language)
-                                        if translated:
-                                            self.on_subtitle({
-                                                "track_id": track.get("id", target_language),
-                                                "text": translated,
-                                                "start": start,
-                                                "end": end,
-                                                "language": target_language,
-                                                "timestamp": ts,
-                                            })
-                                    except Exception as e:
-                                        self._emit(
-                                            running=True,
-                                            message=f"Перевод {detected_language} → {target_language}: {type(e).__name__}: {e}",
-                                        )
-                    except Exception as e:
-                        self._emit(
-                            running=True,
-                            message=f"STT error: {type(e).__name__}: {e}",
-                        )
+                    text = " ".join(texts).strip()
+                    if text:
+                        detected_language = getattr(info, "language", self.config.language) or self.config.language
+                        ts = time.time()
+                        self.last_text = text
+                        self.on_subtitle({
+                            "track_id": "ru" if detected_language.startswith("ru") else detected_language.lower(),
+                            "text": text,
+                            "start": start,
+                            "end": end,
+                            "language": detected_language,
+                            "timestamp": ts,
+                        })
+
+                        tracks = self.get_subtitle_tracks()
+                        if self.translator:
+                            for track in tracks:
+                                if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
+                                    continue
+                                target_language = str(track.get("language", "")).strip().lower().split("-")[0]
+                                if not target_language or target_language == detected_language.lower().split("-")[0]:
+                                    continue
+                                try:
+                                    translated = self.translator.translate(text, detected_language, target_language)
+                                    if translated:
+                                        self.on_subtitle({
+                                            "track_id": track.get("id", target_language),
+                                            "text": translated,
+                                            "start": start,
+                                            "end": end,
+                                            "language": target_language,
+                                            "timestamp": ts,
+                                        })
+                                except Exception as e:
+                                    self._emit(
+                                        running=True,
+                                        message=f"Перевод {detected_language} → {target_language}: {type(e).__name__}: {e}",
+                                    )
+                except Exception as e:
+                    self._emit(
+                        running=True,
+                        message=f"STT error: {type(e).__name__}: {e}",
+                    )
         except Exception as e:
             self._emit(
                 running=False,
@@ -353,6 +382,15 @@ class STTService:
                 last_error=f"{type(e).__name__}: {e}",
             )
         finally:
+            if stream is not None:
+                try:
+                    stream.stop()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
             with self.lock:
                 self.thread = None
             self.input_stream_sample_rate = None
