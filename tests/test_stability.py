@@ -59,6 +59,57 @@ class StabilityDatabaseTests(unittest.TestCase):
                 stt_module.sd = real_sd
 
 
+    def test_stt_uses_wasapi_auto_convert_for_shared_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            service.config.sample_rate = 16000
+            service.config.input_device = 7
+
+            class FakeWasapiSettings:
+                def __init__(self, auto_convert=False):
+                    self.auto_convert = auto_convert
+
+            class FakeStream:
+                def __init__(self, kwargs):
+                    self.kwargs = kwargs
+                    self.closed = False
+
+                def start(self):
+                    if self.kwargs.get("channels") == 1 and not getattr(
+                        self.kwargs.get("extra_settings"), "auto_convert", False
+                    ):
+                        raise RuntimeError("AUDCLNT_E_UNSUPPORTED_FORMAT")
+                def close(self):
+                    self.closed = True
+
+            class FakeSD:
+                WasapiSettings = FakeWasapiSettings
+                def query_devices(self, device=None, kind=None):
+                    return {
+                        "default_samplerate": 48000,
+                        "max_input_channels": 2,
+                        "name": "Mock WASAPI mic",
+                        "hostapi": 0,
+                    }
+                def query_hostapis(self, index):
+                    return {"name": "Windows WASAPI"}
+                def InputStream(self, **kwargs):
+                    return FakeStream(kwargs)
+
+            real_sd = stt_module.sd
+            try:
+                stt_module.sd = FakeSD()
+                stream, rate = service._open_input_stream()
+                self.assertEqual(rate, 16000)
+                self.assertFalse(stream.closed)
+                self.assertTrue(stream.kwargs["extra_settings"].auto_convert)
+                self.assertEqual(stream.kwargs["channels"], 1)
+                stream.close()
+            finally:
+                stt_module.sd = real_sd
+
+
     def test_legacy_chat_messages_schema_is_migrated(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.sqlite3"
