@@ -415,6 +415,21 @@ def create_app(root: Path) -> FastAPI:
                     try:
                         await twitch.update_redemption(reward_id, redemption_id, status)
                         return
+                    except httpx.HTTPStatusError as e:
+                        if e.response is not None and e.response.status_code == 403:
+                            log.warning(
+                                "Twitch redemption was spoken, but auto-fulfill is forbidden "
+                                "for this reward. Twitch only allows the app that created the "
+                                "reward to update its redemption status."
+                            )
+                            return
+                        if attempt == 2:
+                            log.exception(
+                                "Twitch redemption update failed after retries: %s",
+                                e,
+                            )
+                        else:
+                            await asyncio.sleep(1.5 * (attempt + 1))
                     except Exception as e:
                         if attempt == 2:
                             log.exception(
