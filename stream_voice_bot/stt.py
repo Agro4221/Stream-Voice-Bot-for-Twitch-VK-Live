@@ -205,7 +205,7 @@ class STTService:
         else:
             self.audio_q.append(np.asarray(indata, dtype=np.float32).copy())
 
-    def _candidate_input_rates(self) -> tuple[int, list[int]]:
+    def _candidate_input_rates(self) -> tuple[int, list[int], int, str]:
         """Build a deterministic list of rates to try for a Windows input device."""
         requested = max(1, int(self.config.sample_rate))
         device = self.config.input_device
