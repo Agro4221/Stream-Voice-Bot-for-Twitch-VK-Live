@@ -55,15 +55,16 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"Stream Voice Bot - Debug"', debug)
 
 
-    def test_vk_watchdog_contract(self):
+    def test_vk_bridge_contract(self):
         src = self.read("stream_voice_bot/vk_bridge/bridge.js")
-        self.assertIn('const WS_URL = "wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2";', src)
-        self.assertIn('public-chat:${publicChatChannel}', src)
-        self.assertIn("function parseChatPush(payload)", src)
-        self.assertIn("socket.ping()", src)
-        self.assertIn("lastPongAt", src)
+        self.assertIn('import VKPLMessageClient from "vklive-message-client";', src)
+        self.assertIn('auth: "readonly"', src)
+        self.assertIn('channels: [channel]', src)
+        self.assertIn('client.on("message"', src)
+        self.assertIn('ctx?.message?.text', src)
+        self.assertIn('vklive-message-client@5.3.2', src)
         self.assertIn("--self-test", src)
-        self.assertIn("body?.createdAt", src)
+
 
     def test_app_and_db_stability_contract(self):
         app = self.read("stream_voice_bot/app.py")
@@ -90,8 +91,10 @@ class StabilitySourceContractTests(unittest.TestCase):
     def test_stt_is_bounded_and_validated(self):
         src = self.read("stream_voice_bot/stt.py")
         self.assertIn("deque(maxlen=200)", src)
-        self.assertIn("def _resolve_input_stream_rate", src)
-        self.assertIn("resample_poly", src)
+        self.assertIn("def _candidate_input_rates", src)
+        self.assertIn("def _open_input_stream", src)
+        self.assertIn("stream = sd.InputStream(", src)
+        self.assertIn("stream.start()", src)
         self.assertIn("resample_poly", src)
         self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
 
