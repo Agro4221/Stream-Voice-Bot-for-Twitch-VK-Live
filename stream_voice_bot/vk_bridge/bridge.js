@@ -6,7 +6,7 @@ const selfTest = input === "--self-test";
 function normalizeChannel(value) {
   let s = String(value || "").trim();
   s = s.replace(/^https?:\/\//i, "");
-  if (s.includes("/")) s = s.split("/")[0] || "";
+  if (s.includes("/")) {\n    const parts = s.split("/").filter(Boolean);\n    if (parts.length >= 2 && /(^|\\.)vkvideo\\.ru$/i.test(parts[0])) {\n      s = parts[1];\n    } else {\n      s = parts[0] || "";\n    }\n  }
   return s.split("?")[0].split("#")[0].replace(/^\/+|\/+$/g, "");
 }
 
