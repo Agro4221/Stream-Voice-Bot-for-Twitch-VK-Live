@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import sys
 import threading
 import time
 from collections import deque
@@ -344,6 +346,22 @@ class STTService:
     def _run(self):
         target_rate = max(1, int(self.config.sample_rate))
         stream = None
+        com_initialized = False
+
+        # PortAudio's Windows WASAPI/WDM-KS path can be opened from a
+        # dedicated Python thread only when that thread has initialized COM.
+        # Without this, some Windows devices fail with:
+        # "WdmSyncIoctl: DeviceIoControl GLE = 0x00000490".
+        if sys.platform == "win32":
+            try:
+                hr = int(ctypes.windll.ole32.CoInitialize(None))
+                # S_OK (0) and S_FALSE (1) both require a matching CoUninitialize.
+                com_initialized = hr >= 0
+            except Exception as e:
+                self._emit(
+                    running=True,
+                    message=f"Windows audio COM initialization warning: {type(e).__name__}: {e}",
+                )
         try:
             stream, input_rate = self._open_input_stream()
             chunk_samples = int(round(input_rate * self.config.chunk_seconds))
@@ -460,5 +478,10 @@ class STTService:
             with self.lock:
                 self.thread = None
             self.input_stream_sample_rate = None
+            if com_initialized:
+                try:
+                    ctypes.windll.ole32.CoUninitialize()
+                except Exception:
+                    pass
             if self.stop_event.is_set():
                 self._emit(running=False, model_loading=False, message="STT остановлен")
