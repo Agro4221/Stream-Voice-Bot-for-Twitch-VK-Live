@@ -17,20 +17,41 @@ class StabilityDatabaseTests(unittest.TestCase):
             service.config.sample_rate = 16000
             service.config.input_device = 3
 
+            class FakeStream:
+                def __init__(self, samplerate):
+                    self.samplerate = samplerate
+                    self.started = False
+                    self.closed = False
+
+                def start(self):
+                    if self.samplerate != 48000:
+                        raise stt_module.sd.PortAudioError("unsupported")
+                    self.started = True
+
+                def stop(self):
+                    self.started = False
+
+                def close(self):
+                    self.closed = True
+
             class FakeSD:
+                PortAudioError = RuntimeError
+
                 def query_devices(self, device=None, kind=None):
                     self.queried = (device, kind)
-                    return {"default_samplerate": 48000}
+                    return {"default_samplerate": 48000, "max_input_channels": 1, "name": "Mock mic"}
 
-                def check_input_settings(self, **kwargs):
-                    if kwargs["samplerate"] != 48000:
-                        raise RuntimeError("unsupported")
+                def InputStream(self, **kwargs):
+                    return FakeStream(kwargs["samplerate"])
 
             real_sd = stt_module.sd
             try:
                 stt_module.sd = FakeSD()
-                self.assertEqual(service._resolve_input_stream_rate(), 48000)
+                stream, rate = service._open_input_stream()
+                self.assertEqual(rate, 48000)
                 self.assertEqual(service.input_stream_sample_rate, 48000)
+                self.assertFalse(stream.closed)
+                stream.close()
             finally:
                 stt_module.sd = real_sd
 
