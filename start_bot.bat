@@ -11,6 +11,7 @@ if exist "models\v5_ru.pt" (
 if not exist "stream_voice_bot\vk_bridge\node_modules\vklive-message-client" set "NEED_SETUP=1"
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -c "import argostranslate" >nul 2>&1 || set "NEED_SETUP=1"
+  ".venv\Scripts\python.exe" -c "import sounddevice as sd, inspect; p=inspect.signature(sd.WasapiSettings).parameters; raise SystemExit(0 if 'auto_convert' in p else 1)" >nul 2>&1 || set "NEED_SETUP=1"
 )
 
 if "%NEED_SETUP%"=="1" (
