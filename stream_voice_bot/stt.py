@@ -268,12 +268,15 @@ class STTService:
             except Exception:
                 extra_settings_variants = [None]
 
-        # Prefer WASAPI shared-mode auto-conversion, then fall back to plain
-        # PortAudio formats. Try stereo as well because many Windows capture
-        # endpoints expose a 2-channel system mix format even when STT needs
-        # only one channel.
+        # First try the device's native/default sample rate by leaving
+        # samplerate unspecified. This avoids forcing an unsupported format
+        # on Windows devices with unusual or fixed mix formats.
+        # Fixed-rate attempts remain as fallbacks so Whisper can still receive
+        # arbitrary device formats after local resampling.
         attempts = []
         for extra_settings in extra_settings_variants:
+            for channel_count in channels:
+                attempts.append((None, channel_count, extra_settings))
             for channel_count in channels:
                 for rate in rates:
                     attempts.append((rate, channel_count, extra_settings))
@@ -284,21 +287,29 @@ class STTService:
                 kwargs = {
                     "device": self.config.input_device,
                     "channels": channel_count,
-                    "samplerate": rate,
                     "dtype": "float32",
                     "callback": self._callback,
                     "blocksize": 0,
                 }
+                if rate is not None:
+                    kwargs["samplerate"] = rate
                 if extra_settings is not None:
                     kwargs["extra_settings"] = extra_settings
                 stream = sd.InputStream(**kwargs)
                 stream.start()
-                self.input_stream_sample_rate = rate
-                return stream, rate
+                actual_rate = float(getattr(stream, "samplerate", 0.0) or 0.0)
+                if actual_rate <= 0:
+                    actual_rate = float(rate or 0.0)
+                if actual_rate <= 0:
+                    raise RuntimeError("PortAudio did not report an input sample rate")
+                actual_rate_int = int(round(actual_rate))
+                self.input_stream_sample_rate = actual_rate_int
+                return stream, actual_rate_int
             except Exception as e:
+                label_rate = f"{rate} Hz" if rate is not None else "device default"
                 mode = "WASAPI auto-convert" if extra_settings is not None else "default"
                 errors.append(
-                    f"{rate} Hz/{channel_count}ch [{mode}]: "
+                    f"{label_rate}/{channel_count}ch [{mode}]: "
                     f"{type(e).__name__}: {e}"
                 )
                 if stream is not None:
