@@ -84,8 +84,22 @@ class Database:
             if "prompt" not in rcols:
                 conn.execute("ALTER TABLE twitch_rewards ADD COLUMN prompt TEXT NOT NULL DEFAULT 'Введите текст для озвучки'")
             ccols = {r["name"] for r in conn.execute("PRAGMA table_info(chat_messages)").fetchall()}
-            if "platform" not in ccols:
-                conn.execute("ALTER TABLE chat_messages ADD COLUMN platform TEXT NOT NULL DEFAULT 'twitch'")
+            chat_migrations = {
+                "platform": "TEXT NOT NULL DEFAULT 'twitch'",
+                "message_id": "TEXT",
+                "broadcaster_user_id": "TEXT",
+                "broadcaster_login": "TEXT",
+                "user_id": "TEXT",
+                "raw_json": "TEXT",
+            }
+            for name, definition in chat_migrations.items():
+                if name not in ccols:
+                    conn.execute(f"ALTER TABLE chat_messages ADD COLUMN {name} {definition}")
+
+            # Older releases created chat_messages without the current
+            # message metadata columns. SQLite cannot add a UNIQUE constraint
+            # to an existing table with ALTER TABLE, so the duplicate guard is
+            # handled by save_chat_message() and event_dedupe instead.
 
     def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
         with self.lock, self._connect() as conn:
