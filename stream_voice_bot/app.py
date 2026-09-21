@@ -304,6 +304,11 @@ def create_app(root: Path) -> FastAPI:
         return
 
     def on_vk_chat(event: dict):
+        # The readonly VK client receives ordinary viewer messages too.
+        # Only ChatBot system messages are allowed to reach the reward parser.
+        if not bool(event.get("is_chatbot")):
+            return
+
         raw_text = (event.get("text") or "").strip()
         if not raw_text:
             return
