@@ -35,7 +35,11 @@ datas = [
 ]
 
 binaries = []
-hiddenimports = []
+hiddenimports = [
+    # Silero V5 code inside the torch.package model imports wave dynamically;
+    # PyInstaller cannot see imports embedded in the packaged .pt archive.
+    "wave",
+]
 
 # Let PyInstaller's normal import analysis handle Python modules. Only add
 # package data and native libraries that are not reliably found from imports.
