@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .venv/
+.build_venv/
 .runtime/
 .cache/
 
@@ -23,6 +24,11 @@ npm-debug.log*
 models/*
 !models/.keep
 !models/MODEL_README.md
+
+# Build output
+dist/
+dist_release/
+build/
 
 # Secrets / local env
 .env
