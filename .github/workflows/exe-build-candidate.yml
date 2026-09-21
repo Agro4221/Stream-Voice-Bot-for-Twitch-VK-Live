@@ -100,6 +100,8 @@ jobs:
               throw "Packaged EXE did not load bundled Silero model during TTS smoke test."
             }
             Write-Host "Packaged EXE Silero smoke test: OK"
+            # Functional integration checks require real Twitch/VK credentials and
+            # a Windows audio environment, so those are covered by the manual test.
           } finally {
             if ($process -and -not $process.HasExited) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
