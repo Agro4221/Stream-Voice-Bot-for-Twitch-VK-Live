@@ -25,9 +25,6 @@ $BridgeLock = Join-Path $BridgeDir "package-lock.json"
 $Web = Join-Path $ProjectRoot "stream_voice_bot\web"
 $Spec = Join-Path $ProjectRoot "packaging\StreamVoiceBot.spec"
 
-if (-not (Test-Path $DevPython -PathType Leaf)) {
-    throw "Developer Python virtual environment is missing. Run scripts\install_windows.ps1 first."
-}
 if (-not (Test-Path $Model -PathType Leaf) -or ((Get-Item $Model).Length -lt 1MB)) {
     throw "models\v5_ru.pt is missing. Run scripts\install_windows.ps1 first."
 }
@@ -39,6 +36,33 @@ if (-not (Test-Path (Join-Path $Web "index.html") -PathType Leaf)) {
 }
 if (-not (Test-Path $Spec -PathType Leaf)) {
     throw "PyInstaller spec is missing: $Spec"
+}
+
+function Find-BootstrapPython {
+    if (Test-Path $DevPython -PathType Leaf) {
+        return $DevPython
+    }
+
+    foreach ($candidate in @("py", "python", "python3")) {
+        try {
+            $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+            if (-not $cmd) { continue }
+
+            if ($candidate -eq "py") {
+                & $cmd.Source -3.11 -c "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,11),(3,12),(3,13)) else 1)" 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    return "$($cmd.Source) -3.11"
+                }
+            } else {
+                & $cmd.Source -c "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,11),(3,12),(3,13)) else 1)" 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    return $cmd.Source
+                }
+            }
+        } catch {}
+    }
+
+    throw "No compatible Python 3.11-3.13 bootstrap was found. Run scripts\install_windows.ps1 first."
 }
 
 function Invoke-Checked {
@@ -53,7 +77,26 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-BootstrapPython {
+    param(
+        [string]$PythonCommand,
+        [string[]]$Arguments,
+        [string]$FailureMessage
+    )
+
+    if ($PythonCommand -match " -3\.11$") {
+        & py -3.11 @Arguments
+    } else {
+        & $PythonCommand @Arguments
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw $FailureMessage
+    }
+}
+
 function New-CpuBuildVenv {
+    $bootstrapPython = Find-BootstrapPython
+
     if (Test-Path $BuildVenv) {
         $existingTorch = ""
         if (Test-Path $BuildPython -PathType Leaf) {
@@ -72,7 +115,7 @@ function New-CpuBuildVenv {
 
     if (-not (Test-Path $BuildPython -PathType Leaf)) {
         Write-Host "Creating isolated CPU-only build environment..." -ForegroundColor Cyan
-        Invoke-Checked $DevPython @("-m", "venv", $BuildVenv) "Could not create .build_venv."
+        Invoke-BootstrapPython $bootstrapPython @("-m", "venv", $BuildVenv) "Could not create .build_venv."
     }
 
     Write-Host "Bootstrapping CPU build environment..." -ForegroundColor Cyan
@@ -135,16 +178,16 @@ function Ensure-NodeRuntime {
         $script:NpmCommand = $systemNpm.Source
     }
 
-    if (Test-Path $BridgeLock -PathType Leaf) {
-        Write-Host "Installing VK bridge runtime dependencies..." -ForegroundColor Cyan
-        Push-Location $BridgeDir
-        try {
-            Invoke-Checked $script:NpmCommand @("ci", "--omit=dev", "--no-audit", "--no-fund") "VK bridge dependencies failed to install."
-        } finally {
-            Pop-Location
-        }
-    } else {
+    if (-not (Test-Path $BridgeLock -PathType Leaf)) {
         throw "VK bridge package-lock.json is missing: $BridgeLock"
+    }
+
+    Write-Host "Installing VK bridge runtime dependencies..." -ForegroundColor Cyan
+    Push-Location $BridgeDir
+    try {
+        Invoke-Checked $script:NpmCommand @("ci", "--omit=dev", "--no-audit", "--no-fund") "VK bridge dependencies failed to install."
+    } finally {
+        Pop-Location
     }
 }
 
@@ -243,12 +286,10 @@ foreach ($required in $RequiredFiles) {
     }
 }
 
-# Remove the temporary PyInstaller onedir copy. Keep the versioned folder only.
 if (Test-Path $BuiltBundle) {
     Remove-Item $BuiltBundle -Recurse -Force
 }
 
-# The PyInstaller work tree is build-only and is safe to delete after success.
 if (Test-Path $WorkRoot) {
     Remove-Item $WorkRoot -Recurse -Force
 }
