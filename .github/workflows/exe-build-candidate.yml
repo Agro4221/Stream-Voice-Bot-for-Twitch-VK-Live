@@ -1,0 +1,55 @@
+name: Build Windows EXE candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PIP_NO_CACHE_DIR: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download bundled Silero model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force models | Out-Null
+          Invoke-WebRequest -Uri "https://models.silero.ai/models/tts/ru/v5_ru.pt" -OutFile "models\v5_ru.pt"
+          if ((Get-Item "models\v5_ru.pt").Length -lt 1MB) {
+            throw "Silero model download failed."
+          }
+
+      - name: Build portable EXE
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
+
+      - name: Inspect bundle size
+        shell: pwsh
+        run: |
+          $root = Resolve-Path ".\dist_release\StreamVoiceBot_1.1.9"
+          $total = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum
+          Write-Host ("Bundle size: {0:N2} GB" -f ($total / 1GB))
+          Get-ChildItem $root -Recurse -File | Sort-Object Length -Descending | Select-Object -First 20 @{Name="GB";Expression={[math]::Round($_.Length/1GB,2)}}, @{Name="Path";Expression={$_.FullName}} | Format-Table -AutoSize
+
+      - name: Upload EXE candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamVoiceBot_1.1.9-windows-candidate
+          path: dist_release/StreamVoiceBot_1.1.9
+          if-no-files-found: error
+          retention-days: 7
