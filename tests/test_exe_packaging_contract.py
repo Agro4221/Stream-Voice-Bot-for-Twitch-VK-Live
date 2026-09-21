@@ -25,7 +25,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('"stream_voice_bot" / "web"', src)
         self.assertIn('"stream_voice_bot" / "vk_bridge"', src)
         self.assertIn('".runtime" / "node"', src)
-        self.assertIn('["scripts" / "exe_entry.py"]', src)
+        self.assertIn('[str(PROJECT_ROOT / "scripts" / "exe_entry.py")]', src)
         self.assertNotIn("StreamVoiceBotCore", src)
 
     def test_build_script_has_one_user_facing_exe(self):
