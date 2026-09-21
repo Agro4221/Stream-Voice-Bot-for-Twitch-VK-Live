@@ -8,7 +8,67 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-windows:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    env:
+      PIP_NO_CACHE_DIR: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download bundled Silero model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force models | Out-Null
+          Invoke-WebRequest -Uri "https://models.silero.ai/models/tts/ru/v5_ru.pt" -OutFile "models\v5_ru.pt"
+          if ((Get-Item "models\v5_ru.pt").Length -lt 1MB) {
+            throw "Silero model download failed."
+          }
+
+      - name: Build portable Windows EXE
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
+
+      - name: Create release ZIP
+        id: package
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $releaseDir = Join-Path (Resolve-Path .\dist_release) ("StreamVoiceBot_{0}" -f $version)
+          $zip = Join-Path (Resolve-Path .) ("StreamVoiceBot_{0}_Windows_x64.zip" -f $version)
+          Push-Location (Split-Path -Parent $releaseDir)
+          try {
+            7z a -tzip -mx=5 $zip (Split-Path -Leaf $releaseDir) | Write-Host
+          } finally {
+            Pop-Location
+          }
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath ($zip + ".sha256") -Value "$hash  $(Split-Path -Leaf $zip)" -Encoding ASCII
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamVoiceBot-Windows-Release
+          path: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.zip }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build-windows
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -21,6 +81,12 @@ jobs:
           version="$(tr -d '\r\n' < VERSION)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           test -n "$version"
+
+      - name: Download Windows release package
+        uses: actions/download-artifact@v4
+        with:
+          name: StreamVoiceBot-Windows-Release
+          path: release-assets
 
       - name: Check whether release already exists
         id: existing
@@ -45,4 +111,5 @@ jobs:
             --target "${{ github.sha }}" \
             --title "Stream Voice Bot v${{ steps.version.outputs.version }}" \
             --generate-notes \
-            --latest
+            --latest \
+            release-assets/*
