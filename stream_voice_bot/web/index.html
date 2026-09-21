@@ -61,7 +61,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div><h1>Stream Voice Bot</h1><div class="small">TTS queue / Silero V5 / локальный аудиовывод / 2 профиля голоса</div></div>
   <div class="row">
     <div id="status" class="pill">Подключение...</div>
-    <button id="shutdownButton" class="danger" type="button" onclick="shutdownBot()">Завершить работу</button>
+    <button id="shutdownButton" class="danger" type="button" onclick="shutdownBot()">Выключить бота</button>
   </div>
 </header>
 
@@ -186,7 +186,6 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button onclick="saveTwitch()">Сохранить Client ID</button>
     <button class="ok" onclick="connectTwitch()">Подключить Twitch</button>
     <button class="secondary" onclick="disconnectTwitch()">Отключить</button>
-    <button class="secondary" onclick="loadRewards()">Загрузить Channel Points</button>
   </div>
   <div class="row" style="margin-top:8px">
     <a class="button-link" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">Где взять Client ID ↗</a>
@@ -194,12 +193,12 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   </div>
   <div id="twitchInfo" class="small" style="margin-top:8px"></div>
 
-  <h3 style="margin-top:18px">Награды Channel Points</h3>
+  <h3 style="margin-top:18px">Channel Points</h3>
   <div class="small">
-    Включи «требовать текст», задай подсказку и сохрани правило.
-    Тогда Twitch покажет зрителю поле ввода перед активацией награды.
+    Для TTS используется только награда с названием <b>«Озвучить сообщение»</b>.
+    В настройках этой награды Twitch должен быть включён ввод текста зрителем.
+    Полученный текст автоматически попадает в очередь и после озвучки награда закрывается.
   </div>
-  <div id="rewards"></div>
 </section>
 
 <section class="card wide">
@@ -240,8 +239,8 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </select></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="4"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".5"></div>
+    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
+    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
     <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
@@ -284,28 +283,37 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 </main>
 
 <script>
+function showShutdownPopup(){
+  let popup=document.getElementById('shutdownPopup');
+  if(!popup){
+    popup=document.createElement('div');
+    popup.id='shutdownPopup';
+    popup.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.72);z-index:9999';
+    popup.innerHTML='<div style="max-width:420px;width:calc(100% - 32px);background:#171b24;border:1px solid #34527f;border-radius:14px;padding:22px;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.45)"><h2>Бот выключен</h2><p class="small" style="margin:10px 0 18px">Stream Voice Bot завершил работу. Это окно можно закрыть.</p><button class="ok" type="button" onclick="window.close()">Закрыть окно</button></div>';
+    document.body.appendChild(popup);
+  }
+  popup.style.display='flex';
+}
+
 async function shutdownBot(){
   const button=document.getElementById('shutdownButton');
   const status=document.getElementById('status');
+  if(!confirm('Выключить Stream Voice Bot?')) return;
   if(button) button.disabled=true;
-  if(status){ status.textContent='Завершение работы…'; status.className='pill'; }
+  if(status){ status.textContent='Выключение…'; status.className='pill'; }
 
-  let sent=false;
   try{
-    if(navigator.sendBeacon){
-      sent=navigator.sendBeacon('/api/shutdown', new Blob(['{}'],{type:'application/json'}));
-    }
-    if(!sent){
-      await api('/api/shutdown',{method:'POST',keepalive:true});
-    }
+    await api('/api/shutdown',{method:'POST',keepalive:true});
     if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
     if(logTimer){ clearInterval(logTimer); logTimer=null; }
-    if(status){ status.textContent='Бот остановлен — окно можно закрыть'; status.className='pill'; }
-    document.title='Stream Voice Bot — остановлен';
+    if(status){ status.textContent='Выключен'; status.className='pill'; }
+    document.title='Stream Voice Bot — выключен';
+    showShutdownPopup();
   }catch(e){
     if(button) button.disabled=false;
-    if(status){ status.textContent='Ошибка завершения'; status.className='pill badtext'; }
+    if(status){ status.textContent='Ошибка'; status.className='pill badtext'; }
     console.error('shutdown failed',e);
+    alert('Не удалось выключить бота: '+e.message);
   }
 }
 
@@ -424,7 +432,7 @@ async function refresh(){
   refreshBusy=true;
   try{
     const [s,h,dev]=await Promise.all([api('/api/state'),api('/api/history?limit=120'),api('/api/audio/devices')]);
-    document.getElementById('status').textContent='Сервер: работает';
+    document.getElementById('status').textContent='Работает';
     document.getElementById('status').className='pill oktext';
 
     const ae=s.audio.last_error;
