@@ -48,7 +48,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("api('/api/logs?limit=250')", web)
         self.assertIn("api('/api/logs/clear'", web)
         self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', launcher)
-        self.assertIn('powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\open_admin.ps1"', launcher)
+        self.assertIn('start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\open_admin.ps1"', launcher)
+        self.assertNotIn('powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\open_admin.ps1"\nif errorlevel', launcher)
         self.assertIn("exit /b 0", launcher)
         self.assertNotIn("python.exe -m stream_voice_bot", launcher.split("start_bot.bat")[-1])
         bat_files = sorted(
