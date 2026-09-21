@@ -84,11 +84,11 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div id="current">Ничего не озвучивается</div>
   <div id="audioStatus" class="small" style="margin-top:8px"></div>
   <div class="actions" style="margin-top:12px">
-    <button class="secondary" onclick="api('/api/queue/pause')">Pause</button>
-    <button class="ok" onclick="api('/api/queue/resume')">Resume</button>
-    <button class="danger" onclick="api('/api/queue/stop')">Stop</button>
-    <button class="secondary" onclick="api('/api/queue/skip')">Skip</button>
-    <button class="secondary" onclick="api('/api/queue/clear')">Clear queue</button>
+    <button class="secondary" onclick="queueAction('pause')">Pause</button>
+    <button class="ok" onclick="queueAction('resume')">Resume</button>
+    <button class="danger" onclick="queueAction('stop')">Stop</button>
+    <button class="secondary" onclick="queueAction('skip')">Skip</button>
+    <button class="secondary" onclick="queueAction('clear')">Clear queue</button>
   </div>
 </section>
 <section class="card audio-card">
@@ -552,6 +552,14 @@ async function refresh(){
     console.error(e);
   }finally{
     refreshBusy=false;
+  }
+}
+async function queueAction(action){
+  try{
+    await api('/api/queue/'+encodeURIComponent(action),{method:'POST'});
+    await refresh();
+  }catch(e){
+    document.getElementById('audioStatus').textContent='Ошибка '+action+': '+e.message;
   }
 }
 async function enqueue(){
