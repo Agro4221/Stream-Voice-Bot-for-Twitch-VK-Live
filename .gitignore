@@ -5,6 +5,10 @@ __pycache__/
 .runtime/
 .cache/
 
+# Build artifacts
+build/
+dist/
+
 # Runtime data
 data/*.sqlite3
 *.sqlite3
