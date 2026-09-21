@@ -48,12 +48,8 @@ if errorlevel 1 (
 echo Starting Stream Voice Bot...
 echo Opening admin: http://127.0.0.1:8787
 
-rem Run the bot without a console window.
-start "" "%~dp0.venv\Scripts\pythonw.exe" -m stream_voice_bot
+rem Hand the bot startup and admin readiness check to one hidden PowerShell process.
+rem This BAT then exits immediately, so no terminal stays on the taskbar.
+start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\launch_bot.ps1"
 
-rem Wait in a hidden PowerShell process until the admin page is ready.
-rem When the browser opens, this batch file exits and its CMD window closes.
-start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
-
-rem The admin watcher is detached, so this CMD window closes immediately.
 exit /b 0
