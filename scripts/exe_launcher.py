@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -39,7 +40,10 @@ def show_error(message: str) -> None:
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parent
+    if getattr(sys, "frozen", False):
+        root = Path(sys.executable).resolve().parent
+    else:
+        root = Path(__file__).resolve().parent
     core = root / CORE_EXE
 
     if is_ready():
