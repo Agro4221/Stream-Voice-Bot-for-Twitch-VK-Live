@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 
 import uvicorn
 
 from .app import create_app
 
-ROOT = Path(__file__).resolve().parent.parent
+
+def runtime_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+ROOT = runtime_root()
 # Keep large runtime/model caches beside the project, regardless of whether the
 # project lives on C:, D:, E: or another local drive.
 (ROOT / ".cache" / "pip").mkdir(parents=True, exist_ok=True)
