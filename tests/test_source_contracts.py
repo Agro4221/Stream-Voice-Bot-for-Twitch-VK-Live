@@ -30,32 +30,33 @@ class StabilitySourceContractTests(unittest.TestCase):
         main = self.read("stream_voice_bot/__main__.py")
         launcher = self.read("start_bot.bat")
         web = self.read("stream_voice_bot/web/index.html")
-        self.assertIn("access_log=False", main)
-        self.assertIn('log_level="warning"', main)
         hidden_launcher = self.read("scripts/launch_bot.ps1")
+
         self.assertIn("access_log=False", main)
         self.assertIn('log_level="warning"', main)
         self.assertIn("app.state.server = server", main)
-        self.assertIn("127.0.0.1:8787", helper)
+
+        self.assertIn('Start-Process -FilePath $PythonExe', hidden_launcher)
+        self.assertIn("Start-Process $Url", hidden_launcher)
+        self.assertIn("127.0.0.1:8787", hidden_launcher)
+
         self.assertIn("function queueAction(action)", web)
         self.assertIn("method:'POST'", web)
-        self.assertIn("Start-Process -FilePath $PythonExe", hidden_launcher)
-        self.assertIn("Start-Process $Url", hidden_launcher)
         self.assertIn('onclick="shutdownBot()"', web)
         self.assertIn("await api('/api/shutdown',{method:'POST'})", web)
         self.assertIn("refreshTimer=null", web)
         self.assertIn("let logTimer=null", web)
         self.assertIn("api('/api/logs?limit=250')", web)
         self.assertIn("api('/api/logs/clear'", web)
-        self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', launcher)
-        self.assertIn('start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\open_admin.ps1"', launcher)
-        self.assertNotIn('powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\open_admin.ps1"\nif errorlevel', launcher)
+
+        self.assertIn('start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\launch_bot.ps1"', launcher)
         self.assertIn("exit /b 0", launcher)
         self.assertNotIn("python.exe -m stream_voice_bot", launcher.split("start_bot.bat")[-1])
+
         bat_files = sorted(
             p.relative_to(ROOT).as_posix()
             for p in ROOT.rglob("*.bat")
-            if ".git" not in p.parts
+            if ".git" not in p.parts and ".venv" not in p.parts and ".build_venv" not in p.parts
         )
         self.assertEqual(bat_files, ["start_bot.bat"])
 
