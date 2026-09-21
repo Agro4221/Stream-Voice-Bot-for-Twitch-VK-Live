@@ -18,7 +18,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('webbrowser.open(URL)', src)
         self.assertNotIn("subprocess.Popen", src)
 
-    def test_spec_contains_runtime_assets(self):
+    def test_spec_contains_runtime_assets_and_safe_onedir_layout(self):
         src = self.read("packaging/StreamVoiceBot.spec")
         self.assertIn('PROJECT_ROOT = Path.cwd().resolve()', src)
         self.assertIn('"models" / "v5_ru.pt"', src)
@@ -26,14 +26,29 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('"stream_voice_bot" / "vk_bridge"', src)
         self.assertIn('".runtime" / "node"', src)
         self.assertIn('[str(PROJECT_ROOT / "scripts" / "exe_entry.py")]', src)
+        self.assertIn("exclude_binaries=True", src)
+        self.assertIn('contents_directory="."', src)
+        self.assertIn('collect_dynamic_libs("torch")', src)
+        self.assertNotIn("collect_all", src)
         self.assertNotIn("StreamVoiceBotCore", src)
 
-    def test_build_script_has_one_user_facing_exe(self):
+    def test_build_script_isolated_from_legacy_output(self):
         src = self.read("scripts/build_exe.ps1")
         self.assertIn('"StreamVoiceBot"', src)
         self.assertIn("BUILD SUCCESS", src)
+        self.assertIn("dist_release", src)
+        self.assertIn(".build_venv", src)
+        self.assertIn("torch==2.10.0+cpu", src)
+        self.assertIn("https://download.pytorch.org/whl/cpu", src)
+        self.assertIn("The existing dist/ folder will not be touched.", src)
         self.assertIn("Copy-Item $BuiltBundle $FinalStage -Recurse -Force", src)
         self.assertNotIn("StreamVoiceBotCore.exe", src)
+
+    def test_release_build_output_is_ignored(self):
+        src = self.read(".gitignore")
+        self.assertIn(".build_venv/", src)
+        self.assertIn("dist_release/", src)
+        self.assertIn("build/", src)
 
 
 if __name__ == "__main__":
