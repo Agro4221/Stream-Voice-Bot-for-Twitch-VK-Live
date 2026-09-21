@@ -338,6 +338,8 @@ def create_app(root: Path) -> FastAPI:
                 QueueItem(text, username, "vkplay-reward", created_at=created_at),
                 profile="normal",
             )
+            vk_status["last_event"] = f"VK награда: {username}"
+            vk_status["message"] = "Награда принята в очередь озвучки."
             log.info("VK reward queued: user=%s", username)
         except Exception as e:
             db.add_history(
@@ -360,13 +362,26 @@ def create_app(root: Path) -> FastAPI:
         eventsub_id = event.get("_eventsub_message_id")
         reward = event.get("reward", {}) or {}
         reward_id = reward.get("id", "")
+        reward_title = reward.get("title", "") or ""
         rule = db.get_reward(reward_id)
         username = event.get("user_name", "unknown")
         user_input = (event.get("user_input") or "").strip()
         redemption_id = event.get("id", "")
 
+        twitch_status["last_event"] = (
+            f"Channel Points: {username} → {reward_title or reward_id or 'unknown reward'}"
+        )
+
         if not rule or not int(rule["enabled"]):
-            # Intentionally leave unconfigured redemptions untouched.
+            # Intentionally leave unconfigured redemptions untouched, but make
+            # the reason visible in the admin log/status.
+            twitch_status["message"] = (
+                "Channel Points получен, но для этой награды нет включённого правила."
+            )
+            log.info(
+                "Twitch redemption ignored: no enabled rule; user=%s reward=%s (%s)",
+                username, reward_title, reward_id,
+            )
             return
         dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
         if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
@@ -375,6 +390,9 @@ def create_app(root: Path) -> FastAPI:
             # When input is configured as required, an empty event is invalid;
             # don't invent text and don't speak the redemption.
             if int(rule.get("user_input_required", 1)):
+                twitch_status["message"] = (
+                    "Channel Points получен без текста — награда отменена по правилу."
+                )
                 asyncio.create_task(
                     twitch.update_redemption(reward_id, redemption_id, "CANCELED")
                 )
@@ -384,6 +402,9 @@ def create_app(root: Path) -> FastAPI:
         try:
             item = QueueItem(user_input, username, "twitch-channel-points")
             history_id = queue.enqueue(item, profile=rule["profile"])
+            twitch_status["message"] = (
+                f"Channel Points: {username} → {reward_title or reward_id} добавлено в очередь."
+            )
             if int(rule["auto_fulfill"]):
                 asyncio.create_task(
                     fulfill_after(history_id, reward_id, redemption_id)
@@ -603,7 +624,7 @@ def create_app(root: Path) -> FastAPI:
         # shut down. Setting should_exit inline can race the response and make
         # the browser report a misleading "Failed to fetch".
         async def stop_server_later():
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.2)
             server.should_exit = True
 
         asyncio.create_task(stop_server_later(), name="shutdown-server-later")
