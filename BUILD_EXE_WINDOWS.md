@@ -1,12 +1,12 @@
 # Windows EXE package
 
-Этот комплект собирается от релиза **v1.1.9** и не меняет рабочую логику Twitch, VK или STT.
+Этот комплект собирается из версии **v1.1.9** и не меняет рабочую логику Twitch, VK или STT.
 
-В отличие от раннего прототипа упаковки здесь **нет второго launcher EXE и нет запуска EXE через временную папку PyInstaller one-file**. Пользовательский `StreamVoiceBot.exe` — это сразу само приложение. PyInstaller делает стандартный onedir-бандл; поддерживающие файлы находятся рядом с EXE. Это соответствует стандартной модели PyInstaller для onedir-сборки. citeturn344318search1turn344318search2
+В пользовательском комплекте нет второго Core EXE. StreamVoiceBot.exe — единственный запускаемый файл приложения. Сборка использует стандартный PyInstaller onedir. PyInstaller 6.x по умолчанию помещает supporting-файлы в _internal, но spec явно выставляет contents_directory=".", чтобы текущий код мог находить ресурсы относительно папки EXE. citeturn614481search0turn614481search4
 
 ## Сборка
 
-В PowerShell из корня проекта:
+Из корня проекта:
 
     powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
 
@@ -14,47 +14,59 @@
 
     powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 
-Готовый комплект:
+Сборщик создаёт отдельную папку:
 
-    dist\StreamVoiceBot_1.1.9\
+    dist_release\StreamVoiceBot_1.1.9\
 
-Запуск:
+Существующий dist\ не изменяется, поэтому ранее проверенный локальный комплект остаётся резервом.
 
-    dist\StreamVoiceBot_1.1.9\StreamVoiceBot.exe
+## Почему сборка использует отдельный build environment
 
-## Распространение
+Твой рабочий .venv может содержать CUDA-сборку PyTorch. Для релиза это избыточно: Silero TTS в приложении работает через PyTorch CPU.
 
-Распространяй **всю папку** `StreamVoiceBot_1.1.9`, а не один EXE.
+Поэтому build_exe.ps1 автоматически создаёт .build_venv и устанавливает туда CPU-only PyTorch. Это отделяет упаковку релиза от GPU-окружения разработчика и не требует менять рабочий .venv.
 
-Внутри находятся:
+PyTorch публикует отдельные CPU wheels для Windows x64; сборщик использует официальный CPU index. citeturn298888search1
 
-- `StreamVoiceBot.exe`
-- Python/ML зависимости PyInstaller
+## Что входит в пакет
+
+- StreamVoiceBot.exe
+- models\v5_ru.pt — Silero V5 уже внутри комплекта
+- PyTorch CPU runtime для Silero
+- faster-whisper / ctranslate2
 - встроенный Node.js runtime
-- VK bridge и его `node_modules`
-- `models\v5_ru.pt`
+- VK bridge и его production node_modules
 - web-интерфейс
-- `VERSION`
+- VERSION
 
-Данные пользователя не входят в сборку: база и настройки создаются в `data\` рядом с комплектом при работе приложения.
+Локальные базы, Twitch tokens, пользовательские настройки и кэши в пакет не копируются.
 
-STT-модель `large-v3-turbo` не копируется в пакет: при первом запуске STT она загружается в локальный кэш.
+STT-модель large-v3-turbo загружается в пользовательский Hugging Face cache при первом запуске STT. Дополнительные языковые пакеты Argos Translate загружаются только по запросу.
 
-## Проверка
+## Проверка перед выпуском
 
-Перед запуском нового комплекта заверши старый экземпляр бота, чтобы порт 8787 был свободен.
+Перед публикацией нового комплекта нужно проверить на Windows:
 
-Проверь:
+1. StreamVoiceBot.exe запускается и открывает админку.
+2. TTS воспроизводит голос и находит встроенный models\v5_ru.pt.
+3. Twitch можно настроить на новом ПК; токены не входят в релиз.
+4. VK bridge запускается из встроенного Node runtime.
+5. STT запускается и работает через доступный GPU/CPU путь.
+6. Админка работает.
+7. Порт 8787 освобождён при завершении приложения.
 
-1. Запуск `StreamVoiceBot.exe` и автоматическое открытие админки.
-2. Обычную озвучку.
-3. Twitch.
-4. VK.
-5. STT.
-6. Очередь и кнопку «Очистить очередь».
+После успешной проверки архивируется вся папка StreamVoiceBot_1.1.9.
 
-При этом «Очистить очередь» относится к ожидающим элементам; уже идущая озвучка не отменяется.
+## Важно для релиза
 
-## ZIP
+Не публикуй:
 
-Сборщик сознательно не использует Windows PowerShell `Compress-Archive` для этого большого ML-комплекта. Сначала проверяй саму папку `dist\StreamVoiceBot_1.1.9`; затем её можно архивировать 7-Zip.
+- .venv
+- .build_venv
+- .cache
+- build
+- старые папки dist
+- data
+- .runtime\downloads
+
+Публиковать нужно только готовую versioned-папку из dist_release.
