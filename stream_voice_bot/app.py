@@ -598,7 +598,15 @@ def create_app(root: Path) -> FastAPI:
         server = getattr(app.state, "server", None)
         if server is None:
             raise HTTPException(503, "Сервер запущен не через штатный launcher")
-        server.should_exit = True
+
+        # Let the HTTP response reach the browser before asking Uvicorn to
+        # shut down. Setting should_exit inline can race the response and make
+        # the browser report a misleading "Failed to fetch".
+        async def stop_server_later():
+            await asyncio.sleep(0.25)
+            server.should_exit = True
+
+        asyncio.create_task(stop_server_later(), name="shutdown-server-later")
         return {"ok": True, "message": "Бот завершает работу…"}
 
     @app.delete("/api/history")
