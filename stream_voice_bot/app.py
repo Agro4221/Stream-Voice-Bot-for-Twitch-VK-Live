@@ -630,7 +630,7 @@ def create_app(root: Path) -> FastAPI:
         # shut down. Setting should_exit inline can race the response and make
         # the browser report a misleading "Failed to fetch".
         async def stop_server_later():
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.75)
             server.should_exit = True
 
         asyncio.create_task(stop_server_later(), name="shutdown-server-later")
