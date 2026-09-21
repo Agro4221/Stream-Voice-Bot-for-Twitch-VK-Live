@@ -40,29 +40,26 @@ echo Checking Python application startup...
 if errorlevel 1 (
   echo.
   echo [ERROR] Stream Voice Bot preflight failed.
-  echo Run start_bot_debug.bat for the full traceback.
+  echo The project was not started.
   pause
   exit /b 1
 )
 
 echo Starting Stream Voice Bot...
-echo Admin: http://127.0.0.1:8787
-echo.
-echo The bot is intentionally running in this console so startup errors
-echo cannot be hidden by pythonw.exe. Keep this window open while the bot runs.
-echo.
+echo Opening admin: http://127.0.0.1:8787
 
-rem Open the admin page in the background after the server becomes ready.
-start "" powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
+rem Run the bot without a console window.
+start "" "%~dp0.venv\Scripts\pythonw.exe" -m stream_voice_bot
 
-rem Keep the real Python process attached to this console.
-rem This makes any startup/runtime traceback immediately visible.
-"%~dp0.venv\Scripts\python.exe" -m stream_voice_bot
-set "EXIT_CODE=%ERRORLEVEL%"
+rem Wait in a hidden PowerShell process until the admin page is ready.
+rem When the browser opens, this batch file exits and its CMD window closes.
+powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
+if errorlevel 1 (
+  echo.
+  echo [ERROR] Admin page did not become available within 120 seconds.
+  echo Check the application logs in the project data/logs area or run the Python module manually.
+  pause
+  exit /b 1
+)
 
-echo.
-echo ===============================================
-echo Stream Voice Bot stopped. Exit code: %EXIT_CODE%
-echo ===============================================
-pause
-exit /b %EXIT_CODE%
+exit /b 0
