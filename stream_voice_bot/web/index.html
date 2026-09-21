@@ -61,7 +61,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div><h1>Stream Voice Bot</h1><div class="small">TTS queue / Silero V5 / локальный аудиовывод / 2 профиля голоса</div></div>
   <div class="row">
     <div id="status" class="pill">Подключение...</div>
-    <button class="danger" type="button" onclick="shutdownBot()">Завершить работу</button>
+    <button id="shutdownButton" class="danger" type="button" onclick="shutdownBot()">Завершить работу</button>
   </div>
 </header>
 
@@ -285,23 +285,27 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 
 <script>
 async function shutdownBot(){
-  if(!confirm('Завершить работу бота? Twitch, VK, STT и TTS будут корректно остановлены.')) return;
-  const button=document.querySelector('header button.danger');
+  const button=document.getElementById('shutdownButton');
+  const status=document.getElementById('status');
   if(button) button.disabled=true;
-  document.getElementById('status').textContent='Завершение работы…';
-  document.getElementById('status').className='pill';
+  if(status){ status.textContent='Завершение работы…'; status.className='pill'; }
+
+  let sent=false;
   try{
-    await api('/api/shutdown',{method:'POST'});
+    if(navigator.sendBeacon){
+      sent=navigator.sendBeacon('/api/shutdown', new Blob(['{}'],{type:'application/json'}));
+    }
+    if(!sent){
+      await api('/api/shutdown',{method:'POST',keepalive:true});
+    }
     if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
     if(logTimer){ clearInterval(logTimer); logTimer=null; }
-    document.getElementById('status').textContent='Бот остановлен — окно можно закрыть';
-    document.getElementById('status').className='pill';
+    if(status){ status.textContent='Бот остановлен — окно можно закрыть'; status.className='pill'; }
     document.title='Stream Voice Bot — остановлен';
   }catch(e){
     if(button) button.disabled=false;
-    document.getElementById('status').textContent='Ошибка завершения';
-    document.getElementById('status').className='pill badtext';
-    alert('Не удалось завершить работу: '+e.message);
+    if(status){ status.textContent='Ошибка завершения'; status.className='pill badtext'; }
+    console.error('shutdown failed',e);
   }
 }
 
@@ -455,7 +459,9 @@ async function refresh(){
     const vkTop=document.getElementById('vkStatusTop');
     const vkText=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
     vk.textContent=vkText; vkTop.textContent=vkText;
-    document.getElementById('vkInfo').textContent=s.vkplay.message||'';
+    document.getElementById('vkInfo').textContent=
+      [s.vkplay.message||'', s.vkplay.last_event ? 'Последнее событие: '+s.vkplay.last_event : '']
+      .filter(Boolean).join(' · ');
     if(s.vkplay.service_key_saved || s.vkplay.secure_key_saved){
       document.getElementById('vkInfo').textContent +=
         ' · Keys: '+(s.vkplay.service_key_saved?'SERVICE ✓':'SERVICE —')+
@@ -484,7 +490,9 @@ async function refresh(){
       st.textContent='STT: остановлен';
       st.className='pill';
     }
-    document.getElementById('twitchInfo').textContent=s.twitch.message||'';
+    document.getElementById('twitchInfo').textContent=
+      [s.twitch.message||'', s.twitch.last_event ? 'Последнее событие: '+s.twitch.last_event : '']
+      .filter(Boolean).join(' · ');
     if(!document.getElementById('sttInfo').matches(':focus')){
       document.getElementById('sttInfo').textContent=s.stt.message||'';
     }
