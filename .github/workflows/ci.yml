@@ -41,7 +41,7 @@ jobs:
       - name: PowerShell syntax check
         shell: pwsh
         run: |
-          $files = @("scripts/install_windows.ps1", "scripts/make_portable_release.ps1", "scripts/publish_github.ps1")
+          $files = @("scripts/install_windows.ps1", "scripts/make_portable_release.ps1", "scripts/publish_github.ps1", "scripts/launch_bot.ps1")
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { continue }
             $tokens = $null
