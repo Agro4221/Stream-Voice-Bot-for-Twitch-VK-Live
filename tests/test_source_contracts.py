@@ -39,6 +39,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', silent)
         self.assertIn('start "" powershell.exe -NoProfile -WindowStyle Hidden', silent)
         self.assertIn("127.0.0.1:8787", helper)
+        self.assertIn("function queueAction(action)", web)
+        self.assertIn("method:'POST'", web)
         self.assertIn("Invoke-WebRequest", helper)
         self.assertIn("Start-Process $Url", helper)
         self.assertIn('onclick="shutdownBot()"', web)
