@@ -54,7 +54,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         bat_files = sorted(
             p.relative_to(ROOT).as_posix()
             for p in ROOT.rglob("*.bat")
-            if ".git" not in p.parts
+            if ".git" not in p.parts and ".venv" not in p.parts
         )
         self.assertEqual(bat_files, ["start_bot.bat"])
 
