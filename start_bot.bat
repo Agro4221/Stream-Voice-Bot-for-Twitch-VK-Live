@@ -53,13 +53,7 @@ start "" "%~dp0.venv\Scripts\pythonw.exe" -m stream_voice_bot
 
 rem Wait in a hidden PowerShell process until the admin page is ready.
 rem When the browser opens, this batch file exits and its CMD window closes.
-powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
-if errorlevel 1 (
-  echo.
-  echo [ERROR] Admin page did not become available within 120 seconds.
-  echo Check the application logs in the project data/logs area or run the Python module manually.
-  pause
-  exit /b 1
-)
+start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\open_admin.ps1"
 
+rem The admin watcher is detached, so this CMD window closes immediately.
 exit /b 0
