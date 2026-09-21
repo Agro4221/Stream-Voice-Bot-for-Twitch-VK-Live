@@ -12,7 +12,18 @@ from .app import create_app
 
 def runtime_root() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        exe_dir = Path(sys.executable).resolve().parent
+        # The user-facing launcher keeps the frozen core in a child directory.
+        # Prefer the bundle root when its runtime files are present.
+        if (exe_dir / "VERSION").is_file() and (exe_dir / "stream_voice_bot" / "web").is_dir():
+            return exe_dir
+        if (
+            exe_dir.name == "StreamVoiceBotCore"
+            and (exe_dir.parent / "VERSION").is_file()
+            and (exe_dir.parent / "stream_voice_bot" / "web").is_dir()
+        ):
+            return exe_dir.parent
+        return exe_dir
     return Path(__file__).resolve().parent.parent
 
 
