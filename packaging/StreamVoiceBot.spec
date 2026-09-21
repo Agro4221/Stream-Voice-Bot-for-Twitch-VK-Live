@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 
 PROJECT_ROOT = Path.cwd().resolve()
@@ -33,18 +37,25 @@ datas = [
 binaries = []
 hiddenimports = []
 
+# Let PyInstaller's normal import analysis handle Python modules. Only add
+# package data and native libraries that are not reliably found from imports.
+# The build environment is intentionally CPU-only for PyTorch, so no CUDA
+# runtime is pulled into the portable TTS package.
 for package in (
     "torch",
-    "torchaudio",
     "faster_whisper",
     "ctranslate2",
     "argostranslate",
 ):
-    package_datas, package_binaries, package_hiddenimports = collect_all(package)
-    datas.extend(package_datas)
-    binaries.extend(package_binaries)
-    hiddenimports.extend(package_hiddenimports)
+    datas.extend(collect_data_files(package, include_py_files=False))
+    binaries.extend(collect_dynamic_libs(package))
 
+# Silero V5 is loaded from the bundled .pt package via torch.package.
+hiddenimports.extend(collect_submodules("torch.package"))
+
+# These packages use dynamic imports.
+hiddenimports.extend(collect_submodules("faster_whisper"))
+hiddenimports.extend(collect_submodules("argostranslate"))
 hiddenimports.extend(collect_submodules("uvicorn"))
 
 a = Analysis(
@@ -65,12 +76,13 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# PyInstaller 6.x normally places onedir support files in _internal.
+# Our application code deliberately resolves resources relative to the
+# directory containing the EXE, so restore the old onedir layout here.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    exclude_binaries=True,
     name="StreamVoiceBot",
     debug=False,
     bootloader_ignore_signals=False,
@@ -78,6 +90,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=True,
+    contents_directory=".",
 )
 
 coll = COLLECT(
