@@ -289,15 +289,18 @@ async function shutdownBot(){
   const button=document.querySelector('header button.danger');
   if(button) button.disabled=true;
   document.getElementById('status').textContent='Завершение работы…';
+  document.getElementById('status').className='pill';
   try{
     await api('/api/shutdown',{method:'POST'});
     if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
     if(logTimer){ clearInterval(logTimer); logTimer=null; }
     document.getElementById('status').textContent='Бот остановлен — окно можно закрыть';
+    document.getElementById('status').className='pill';
     document.title='Stream Voice Bot — остановлен';
   }catch(e){
     if(button) button.disabled=false;
     document.getElementById('status').textContent='Ошибка завершения';
+    document.getElementById('status').className='pill badtext';
     alert('Не удалось завершить работу: '+e.message);
   }
 }
@@ -827,7 +830,15 @@ async function startVk(){
   catch(e){document.getElementById('vkInfo').textContent='Ошибка VK Видео Live: '+e.message}
 }
 async function stopVk(){
-  try{await api('/api/vkplay/stop',{method:'POST'});refresh();}catch(e){alert(e.message)}
+  const info=document.getElementById('vkInfo');
+  if(info) info.textContent='Останавливаю VK Видео Live…';
+  try{
+    await api('/api/vkplay/stop',{method:'POST'});
+    if(info) info.textContent='VK Видео Live остановлен.';
+    await refresh();
+  }catch(e){
+    if(info) info.textContent='Не удалось остановить VK: '+e.message;
+  }
 }
 async function saveStt(){
   try{
@@ -857,7 +868,15 @@ async function startStt(){
   }
 }
 async function stopStt(){
-  try{await api('/api/stt/stop',{method:'POST'});refresh()}catch(e){alert(e.message)}
+  const info=document.getElementById('sttInfo');
+  if(info) info.textContent='Останавливаю STT…';
+  try{
+    await api('/api/stt/stop',{method:'POST'});
+    if(info) info.textContent='STT остановлен.';
+    await refresh();
+  }catch(e){
+    if(info) info.textContent='Не удалось остановить STT: '+e.message;
+  }
 }
 
 </script>
