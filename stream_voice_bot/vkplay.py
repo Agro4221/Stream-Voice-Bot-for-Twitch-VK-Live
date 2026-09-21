@@ -5,6 +5,8 @@ import json
 import logging
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 log = logging.getLogger("stream_voice_bot.vkplay")
@@ -150,12 +152,23 @@ class VKPlayService:
                     pass
 
     async def _spawn(self, channel: str):
+        spawn_kwargs = {
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+        }
+        # The VK bridge is a background service. On Windows, do not let the
+        # child Node process create a visible console window.
+        if sys.platform == "win32":
+            spawn_kwargs["creationflags"] = getattr(
+                subprocess,
+                "CREATE_NO_WINDOW",
+                0x08000000,
+            )
         self.proc = await asyncio.create_subprocess_exec(
             self.node_command(),
             str(BRIDGE_JS),
             channel,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            **spawn_kwargs,
         )
         self.reader_task = asyncio.create_task(
             self._read_stdout(self.proc),
