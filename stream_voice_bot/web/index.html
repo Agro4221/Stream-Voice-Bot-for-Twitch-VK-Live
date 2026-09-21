@@ -424,7 +424,7 @@ async function refresh(){
   refreshBusy=true;
   try{
     const [s,h,dev]=await Promise.all([api('/api/state'),api('/api/history?limit=120'),api('/api/audio/devices')]);
-    document.getElementById('status').textContent='Работает';
+    document.getElementById('status').textContent='Сервер: работает';
     document.getElementById('status').className='pill oktext';
 
     const ae=s.audio.last_error;
