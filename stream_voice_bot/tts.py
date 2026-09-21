@@ -413,6 +413,7 @@ class TTSQueue:
         if removed_ids and hasattr(self.db, "mark_pending_history"):
             self.db.mark_pending_history(removed_ids, status="cleared")
         self.on_change()
+        return len(removed_ids)
     def queued(self):
         with self.lock: return [item.as_dict()|{"history_id":hid,"profile":profile} for item,hid,profile in self.pending]
     def state(self):
