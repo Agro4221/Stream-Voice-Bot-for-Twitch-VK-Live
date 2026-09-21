@@ -289,7 +289,7 @@ function showShutdownPopup(){
     popup=document.createElement('div');
     popup.id='shutdownPopup';
     popup.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.72);z-index:9999';
-    popup.innerHTML='<div style="max-width:420px;width:calc(100% - 32px);background:#171b24;border:1px solid #34527f;border-radius:14px;padding:22px;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.45)"><h2>Бот выключен</h2><p class="small" style="margin:10px 0 18px">Stream Voice Bot завершил работу. Это окно можно закрыть.</p><button class="ok" type="button" onclick="window.close()">Закрыть окно</button></div>';
+    popup.innerHTML='<div style="max-width:420px;width:calc(100% - 32px);background:#171b24;border:1px solid #34527f;border-radius:14px;padding:22px;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.45)"><h2>Бот выключен</h2><p class="small" style="margin:10px 0 18px">Stream Voice Bot полностью завершил работу.</p><button class="ok" type="button" onclick="this.closest(\'#shutdownPopup\').style.display=\'none\'">Понятно</button></div>';
     document.body.appendChild(popup);
   }
   popup.style.display='flex';
@@ -572,8 +572,8 @@ async function refresh(){
         <td><button class="secondary" onclick="repeatOne(${x.id})">Повтор</button></td>
       </tr>`).join('');
   }catch(e){
-    document.getElementById('status').textContent='Ошибка';
-    document.getElementById('status').className='pill badtext';
+    document.getElementById('status').textContent='Выключен';
+    document.getElementById('status').className='pill';
     console.error(e);
   }finally{
     refreshBusy=false;
