@@ -43,6 +43,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("function queueAction(action)", web)
         self.assertIn("method:'POST'", web)
         self.assertIn('onclick="shutdownBot()"', web)
+        self.assertIn("Сервер: работает", web)
         self.assertIn("await api('/api/shutdown',{method:'POST'})", web)
         self.assertIn("refreshTimer=null", web)
         self.assertIn("let logTimer=null", web)
