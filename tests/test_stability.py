@@ -157,8 +157,18 @@ class StabilityDatabaseTests(unittest.TestCase):
             max_chars_getter=lambda: 1000,
         )
         try:
-            first = queue.enqueue(QueueItem("first", "u1", "test"))
-            second = queue.enqueue(QueueItem("second", "u2", "test"))
+            queue.running = False
+            queue.thread.join(timeout=1)
+
+            first = db.add_history("u1", "first", "test", "2026-09-18T20:00:00")
+            second = db.add_history("u2", "second", "test", "2026-09-18T20:00:01")
+            queue.pending.extend([
+                (QueueItem("first", "u1", "test"), first, "normal"),
+                (QueueItem("second", "u2", "test"), second, "normal"),
+            ])
+            queue.queue.put_nowait((QueueItem("first", "u1", "test"), first, "normal"))
+            queue.queue.put_nowait((QueueItem("second", "u2", "test"), second, "normal"))
+
             removed = queue.clear()
             self.assertEqual(removed, 2)
             self.assertEqual(queue.queued(), [])
