@@ -71,7 +71,35 @@ jobs:
               }
               throw "Packaged EXE did not serve admin page on 127.0.0.1:8787 within 60 seconds."
             }
-            Write-Host "Packaged EXE smoke test: OK"
+            Write-Host "Packaged EXE admin smoke test: OK"
+
+            # Exercise the bundled Silero package far enough to catch hidden
+            # imports that a simple HTTP health check cannot detect.
+            $tts = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8787/api/tts/test?profile=normal" -TimeoutSec 5
+            if (-not $tts.ok) {
+              throw "Packaged EXE TTS test request was rejected."
+            }
+            $ttsReady = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $state = Invoke-RestMethod -Uri "http://127.0.0.1:8787/api/state" -TimeoutSec 2
+                if ($state.model.loaded) {
+                  $ttsReady = $true
+                  $audioError = [string]$state.queue.last_audio_error
+                  if ($audioError -match "No module named 'wave'") {
+                    throw "Packaged EXE is missing Python stdlib module 'wave': $audioError"
+                  }
+                  break
+                }
+              } catch {
+                if ($_.Exception.Message -match "missing Python stdlib module 'wave'") { throw }
+              }
+            }
+            if (-not $ttsReady) {
+              throw "Packaged EXE did not load bundled Silero model during TTS smoke test."
+            }
+            Write-Host "Packaged EXE Silero smoke test: OK"
           } finally {
             if ($process -and -not $process.HasExited) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
