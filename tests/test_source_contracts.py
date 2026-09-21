@@ -38,6 +38,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("app.state.server = server", main)
         self.assertIn("127.0.0.1:8787", helper)
         self.assertIn("function queueAction(action)", web)
+        self.assertIn("const cleared=Number(result.cleared||0)", web)
+        self.assertIn("Очередь очищена: убрано", web)
         self.assertIn("method:'POST'", web)
         self.assertIn("Start-Process -FilePath $PythonExe", hidden_launcher)
         self.assertIn("Start-Process $Url", hidden_launcher)
