@@ -249,7 +249,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Субтитры можно пока не использовать. Первый запуск модели STT может скачать модель с Hugging Face. На RTX 3060 сначала пробуем CUDA; при ошибке приложение автоматически попытается CPU.</div>
+  <div class="small" style="margin-top:8px">Субтитры можно пока не использовать. Первый запуск модели STT может скачать модель с Hugging Face. В переносимом EXE STT работает через CPU int8, поэтому внешние CUDA/cuBLAS DLL не требуются.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
 </section>
 
