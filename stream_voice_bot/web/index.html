@@ -556,7 +556,14 @@ async function refresh(){
 }
 async function queueAction(action){
   try{
-    await api('/api/queue/'+encodeURIComponent(action),{method:'POST'});
+    const result=await api('/api/queue/'+encodeURIComponent(action),{method:'POST'});
+    if(action==='clear'){
+      const cleared=Number(result.cleared||0);
+      document.getElementById('audioStatus').textContent=
+        cleared
+          ? 'Очередь очищена: убрано '+cleared+' сообщ.'
+          : 'Ожидающая очередь уже пуста. Текущая озвучка не остановлена.';
+    }
     await refresh();
   }catch(e){
     document.getElementById('audioStatus').textContent='Ошибка '+action+': '+e.message;
