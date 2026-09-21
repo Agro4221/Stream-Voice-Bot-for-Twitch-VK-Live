@@ -1,6 +1,8 @@
 name: Build Windows EXE candidate
 
 on:
+  push:
+    branches: ["exe-packaging-v1.1.9-release-candidate"]
   workflow_dispatch:
 
 permissions:
@@ -37,6 +39,33 @@ jobs:
         shell: pwsh
         run: |
           powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
+
+      - name: Smoke-test packaged EXE
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path ".dist_releaseStreamVoiceBot_1.1.9StreamVoiceBot.exe"
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8787/" -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $ready) {
+              throw "Packaged EXE did not serve admin page on 127.0.0.1:8787 within 60 seconds."
+            }
+            Write-Host "Packaged EXE smoke test: OK"
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
 
       - name: Inspect bundle size
         shell: pwsh
