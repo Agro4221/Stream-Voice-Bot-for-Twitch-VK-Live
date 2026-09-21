@@ -132,10 +132,18 @@ class STTService:
             last_error="",
         )
         try:
+            # The portable Windows EXE is intentionally CUDA-independent.
+            # CTranslate2's CUDA path needs external cuBLAS/cuDNN DLLs, which
+            # are not bundled with the portable release. Keep GPU preference
+            # for source/developer runs, but use CPU int8 in the EXE so STT
+            # works on a clean Windows machine.
+            frozen = bool(getattr(sys, "frozen", False))
+            device = "cpu" if frozen else "cuda"
+            compute_type = "int8" if frozen else self.config.compute_type
             self.model = WhisperModel(
                 self.config.model_name,
-                device="cuda",
-                compute_type=self.config.compute_type,
+                device=device,
+                compute_type=compute_type,
             )
         except Exception as gpu_error:
             self._emit(
