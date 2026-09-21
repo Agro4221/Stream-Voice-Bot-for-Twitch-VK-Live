@@ -13,7 +13,7 @@ $LogFile = Join-Path $RuntimeDir "launcher.log"
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
 
 function Log([string]$Text) {
-    Add-Content -LiteralPath $LogFile -Value "$(Get-Date -Format \'yyyy-MM-dd HH:mm:ss\') $Text" -Encoding UTF8
+    Add-Content -LiteralPath $LogFile -Value "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss") $Text" -Encoding UTF8
 }
 
 try {
