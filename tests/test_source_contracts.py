@@ -26,9 +26,9 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("await self._open_eventsub_socket(reconnect_url)", src)
         self.assertIn("await old_ws.close()", src)
 
-    def test_runtime_lifecycle_and_silent_launcher_contract(self):
+    def test_runtime_lifecycle_and_launcher_contract(self):
         main = self.read("stream_voice_bot/__main__.py")
-        silent = self.read("start_bot_silent.bat")
+        launcher = self.read("start_bot.bat")
         web = self.read("stream_voice_bot/web/index.html")
         self.assertIn("access_log=False", main)
         self.assertIn('log_level="warning"', main)
@@ -36,8 +36,6 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("access_log=False", main)
         self.assertIn('log_level="warning"', main)
         self.assertIn("app.state.server = server", main)
-        self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', silent)
-        self.assertIn('start "" powershell.exe -NoProfile -WindowStyle Hidden', silent)
         self.assertIn("127.0.0.1:8787", helper)
         self.assertIn("function queueAction(action)", web)
         self.assertIn("method:'POST'", web)
@@ -49,12 +47,16 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("let logTimer=null", web)
         self.assertIn("api('/api/logs?limit=250')", web)
         self.assertIn("api('/api/logs/clear'", web)
-        launcher = self.read("start_bot.bat")
-        debug = self.read("start_bot_debug.bat")
         self.assertIn('start "" "%~dp0.venv\\Scripts\\pythonw.exe" -m stream_voice_bot', launcher)
         self.assertIn('powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\open_admin.ps1"', launcher)
         self.assertIn("exit /b 0", launcher)
-        self.assertIn('"Stream Voice Bot - Debug"', debug)
+        self.assertNotIn("python.exe -m stream_voice_bot", launcher.split("start_bot.bat")[-1])
+        bat_files = sorted(
+            p.relative_to(ROOT).as_posix()
+            for p in ROOT.rglob("*.bat")
+            if ".git" not in p.parts
+        )
+        self.assertEqual(bat_files, ["start_bot.bat"])
 
 
     def test_vk_bridge_contract(self):
