@@ -63,15 +63,6 @@ class TwitchConfigRequest(BaseModel):
     redirect_uri: str = "http://localhost:8787/auth/twitch/callback"
 
 
-class RewardRuleRequest(BaseModel):
-    reward_id: str
-    reward_title: str
-    enabled: bool = True
-    profile: str = "normal"
-    auto_fulfill: bool = True
-    user_input_required: bool = True
-    prompt: str = "Введите текст для озвучки"
-
 
 class VKPlayConfigRequest(BaseModel):
     channel_id: str = ""
@@ -360,70 +351,69 @@ def create_app(root: Path) -> FastAPI:
             log.info("VK: %s", message)
 
     def on_redemption(event: dict):
-        # Only process new/unfulfilled redemptions.
+        # Twitch Channel Points handling is deliberately simple: one reward
+        # named "Озвучить сообщение" feeds its viewer-entered text into TTS.
         if (event.get("status") or "").lower() not in {"", "unfulfilled"}:
             return
+
         redemption_id = event.get("id", "")
         eventsub_id = event.get("_eventsub_message_id")
         reward = event.get("reward", {}) or {}
         reward_id = reward.get("id", "")
-        reward_title = reward.get("title", "") or ""
-        rule = db.get_reward(reward_id)
+        reward_title = str(reward.get("title") or "").strip()
         username = event.get("user_name", "unknown")
         user_input = (event.get("user_input") or "").strip()
-        redemption_id = event.get("id", "")
 
         twitch_status["last_event"] = (
-            f"Channel Points: {username} → {reward_title or reward_id or 'unknown reward'}"
+            f"Channel Points: {username} → {reward_title or reward_id or 'неизвестная награда'}"
         )
 
-        if not rule or not int(rule["enabled"]):
-            # Intentionally leave unconfigured redemptions untouched, but make
-            # the reason visible in the admin log/status.
+        if reward_title.casefold() != "озвучить сообщение":
             twitch_status["message"] = (
-                "Channel Points получен, но для этой награды нет включённого правила."
+                f"Награда «{reward_title or reward_id}» пропущена. "
+                "Озвучивается только «Озвучить сообщение»."
             )
             log.info(
-                "Twitch redemption ignored: no enabled rule; user=%s reward=%s (%s)",
+                "Twitch redemption ignored: reward is not the voice reward; "
+                "user=%s reward=%s (%s)",
                 username, reward_title, reward_id,
             )
             return
+
         dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
         if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
+
         if not user_input:
-            # When input is configured as required, an empty event is invalid;
-            # don't invent text and don't speak the redemption.
-            if int(rule.get("user_input_required", 1)):
-                twitch_status["message"] = (
-                    "Channel Points получен без текста — награда отменена по правилу."
-                )
-                asyncio.create_task(
-                    twitch.update_redemption(reward_id, redemption_id, "CANCELED")
-                )
-                return
-            user_input = f"{username} активировал награду «{reward.get('title', rule['reward_title'])}»"
+            twitch_status["message"] = (
+                "Награда «Озвучить сообщение» получена без текста — отменяю."
+            )
+            log.info(
+                "Twitch redemption canceled: missing viewer text; user=%s reward=%s",
+                username, reward_title,
+            )
+            asyncio.create_task(
+                twitch.update_redemption(reward_id, redemption_id, "CANCELED")
+            )
+            return
 
         try:
             item = QueueItem(user_input, username, "twitch-channel-points")
-            history_id = queue.enqueue(item, profile=rule["profile"])
+            history_id = queue.enqueue(item, profile="normal")
             twitch_status["message"] = (
-                f"Channel Points: {username} → {reward_title or reward_id} добавлено в очередь."
+                f"Channel Points: {username} → «Озвучить сообщение» добавлено в очередь."
             )
-            if int(rule["auto_fulfill"]):
-                asyncio.create_task(
-                    fulfill_after(history_id, reward_id, redemption_id)
-                )
+            asyncio.create_task(
+                fulfill_after(history_id, reward_id, redemption_id)
+            )
         except Exception as e:
-            # Do not leave a redemption permanently pending when the local
-            # queue rejects it (for example because the bounded queue is full).
             history_id = db.add_history(
                 username,
                 user_input,
                 "twitch-channel-points",
                 time.strftime("%Y-%m-%dT%H:%M:%S"),
                 status="error",
-                profile=rule["profile"],
+                profile="normal",
             )
             log.exception("Twitch redemption could not be queued: %s", e)
             asyncio.create_task(
@@ -941,7 +931,7 @@ def create_app(root: Path) -> FastAPI:
         return db.rewards()
 
     @app.post("/api/twitch/rules")
-    async def twitch_rule(req: RewardRuleRequest):
+    async def twitch_rule(req):
         if req.profile not in profiles:
             raise HTTPException(400, "Unknown profile")
         if req.user_input_required and not req.prompt.strip():
