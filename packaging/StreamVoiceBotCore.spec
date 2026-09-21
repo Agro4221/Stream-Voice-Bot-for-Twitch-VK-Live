@@ -5,7 +5,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 
-PROJECT_ROOT = Path(SPECPATH).parent.parent
+PROJECT_ROOT = Path.cwd().resolve()
 
 
 datas = [
