@@ -460,7 +460,13 @@ async function refresh(){
     }
 
     const tw=document.getElementById('twitchStatus');
-    tw.textContent=s.twitch.authorized ? ('Twitch: '+(s.twitch.user.login||'подключён')+(s.twitch.connected?' · EventSub ✓':' · EventSub не запущен')) : 'Twitch: не авторизован';
+    if(!s.twitch.client_configured){
+      tw.textContent='Twitch: не настроен';
+    } else if(!s.twitch.authorized){
+      tw.textContent='Twitch: не авторизован';
+    } else {
+      tw.textContent='Twitch: '+(s.twitch.user.login||'авторизован')+(s.twitch.connected?' · EventSub ✓':' · EventSub не запущен');
+    }
     const st=document.getElementById('sttStatus');
     if(s.stt.model_loading){
       st.textContent='STT: загрузка · '+(s.stt.model||'');
