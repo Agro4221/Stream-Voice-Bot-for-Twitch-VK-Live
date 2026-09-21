@@ -180,8 +180,8 @@ class VKPlayService:
         )
 
         self.on_status({
-            "connected": True,
-            "message": f"VK Video Live bridge started: {channel}",
+            "connected": False,
+            "message": f"Подключаюсь к VK Video Live: {channel}…",
             "channel": channel,
         })
 
