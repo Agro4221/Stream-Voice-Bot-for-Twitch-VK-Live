@@ -63,6 +63,17 @@ class TwitchConfigRequest(BaseModel):
     redirect_uri: str = "http://localhost:8787/auth/twitch/callback"
 
 
+# Kept for API compatibility with older admin pages. The current UI no longer
+# requires per-reward rules; Twitch TTS uses the fixed "Озвучить сообщение" reward.
+class RewardRuleRequest(BaseModel):
+    reward_id: str
+    reward_title: str
+    enabled: bool = True
+    profile: str = "normal"
+    auto_fulfill: bool = True
+    user_input_required: bool = True
+    prompt: str = "Введите текст для озвучки"
+
 
 class VKPlayConfigRequest(BaseModel):
     channel_id: str = ""
@@ -931,7 +942,7 @@ def create_app(root: Path) -> FastAPI:
         return db.rewards()
 
     @app.post("/api/twitch/rules")
-    async def twitch_rule(req):
+    async def twitch_rule(req: RewardRuleRequest):
         if req.profile not in profiles:
             raise HTTPException(400, "Unknown profile")
         if req.user_input_required and not req.prompt.strip():
