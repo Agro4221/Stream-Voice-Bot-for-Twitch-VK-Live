@@ -50,6 +50,9 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0scripts\\launch_bot.ps1"', launcher)
         self.assertNotIn("open_admin.ps1", launcher)
         self.assertIn("exit /b 0", launcher)
+        exe_launcher = self.read("scripts/exe_launcher.py")
+        self.assertIn("getattr(sys, \"frozen\", False)", exe_launcher)
+        self.assertIn("Path(sys.executable).resolve().parent", exe_launcher)
         self.assertNotIn("python.exe -m stream_voice_bot", launcher.split("start_bot.bat")[-1])
         bat_files = sorted(
             p.relative_to(ROOT).as_posix()
