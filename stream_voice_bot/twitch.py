@@ -344,11 +344,14 @@ class TwitchService:
             await self.identify()
         # Only Channel Points redemptions drive TTS. Ordinary chat is
         # deliberately not subscribed here.
-        await self.create_subscription(
+        response = await self.create_subscription(
             "channel.channel_points_custom_reward_redemption.add",
             "1",
             {"broadcaster_user_id": self.identity.user_id},
         )
+        if not response.get("data"):
+            raise RuntimeError("Twitch EventSub subscription was not created")
+        return response
 
     async def start(self):
         if self.task and not self.task.done():
@@ -415,18 +418,30 @@ class TwitchService:
     async def _run_one(self):
         ws = None
         try:
+            if not self.identity:
+                await self.identify()
+            scopes = set(self.identity.scopes if self.identity else [])
+            missing = [scope for scope in ("channel:read:redemptions",) if scope not in scopes]
+            if missing:
+                raise RuntimeError(
+                    "Twitch OAuth token lacks required scope(s): " + ", ".join(missing) +
+                    ". Reauthorize Twitch for this app."
+                )
+
             ws, session = await self._open_eventsub_socket(EVENTSUB_WS)
             self.ws = ws
             self.session_id = session["id"]
+
+            subscription = await self._subscribe()
+            sub = (subscription.get("data") or [{}])[0]
             self.connected = True
             self.on_status({
                 "connected": True,
-                "message": "EventSub WebSocket connected",
+                "message": "Twitch EventSub connected: Channel Points listening",
                 "session_id": self.session_id,
+                "subscription_id": sub.get("id", ""),
                 "login": self.identity.login if self.identity else "",
             })
-
-            await self._subscribe()
 
             keepalive_timeout = max(
                 10,
