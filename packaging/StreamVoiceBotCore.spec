@@ -38,7 +38,7 @@ hiddenimports.extend(collect_submodules("uvicorn"))
 
 
 a = Analysis(
-    ["stream_voice_bot/__main__.py"],
+    [str(PROJECT_ROOT / "stream_voice_bot" / "__main__.py")],
     pathex=[str(PROJECT_ROOT)],
     binaries=binaries,
     datas=datas,
