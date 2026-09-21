@@ -174,14 +174,40 @@ Stream Voice Bot v$Version
 - Для VK bridge используется встроенный Node.js runtime внутри StreamVoiceBotCore.
 "@ | Set-Content -LiteralPath $Readme -Encoding UTF8
 
+$FinalStage = Join-Path $DistRoot ("StreamVoiceBot_{0}" -f $Version)
+if (Test-Path $FinalStage) {
+    Remove-Item $FinalStage -Recurse -Force
+}
+Copy-Item $Stage $FinalStage -Recurse -Force
+
 $Zip = Join-Path $DistRoot ("StreamVoiceBot_{0}_win64.zip" -f $Version)
 if (Test-Path $Zip) {
     Remove-Item $Zip -Force
 }
-Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $Zip -CompressionLevel Optimal
+
+# Windows PowerShell 5 Compress-Archive can fail on large ML bundles.
+# ZIP is convenient but is not required for the EXE itself.
+$sevenZip = @(
+    (Join-Path $env:ProgramFiles "7-Zip\7z.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "7-Zip\7z.exe"),
+    (Join-Path $ProjectRoot "7z.exe")
+) | Where-Object { $_ -and (Test-Path $_ -PathType Leaf) } | Select-Object -First 1
+
+if ($sevenZip) {
+    Write-Host "Creating ZIP with 7-Zip..." -ForegroundColor Cyan
+    & $sevenZip a -tzip -mx=5 $Zip (Join-Path $FinalStage "*") | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $Zip -Force -ErrorAction SilentlyContinue
+        Write-Warning "7-Zip could not create the ZIP. The EXE bundle folder is still valid."
+    }
+} else {
+    Write-Warning "7-Zip was not found. Skipping ZIP creation because Windows PowerShell Compress-Archive can fail on large ML bundles."
+}
 
 Write-Host ""
 Write-Host "EXE bundle created:" -ForegroundColor Green
-Write-Host "  Folder: $Stage"
-Write-Host "  ZIP:    $Zip"
-Write-Host "  Start:  $Stage\StreamVoiceBot.exe"
+Write-Host "  Folder: $FinalStage"
+Write-Host "  Start:  $FinalStage\StreamVoiceBot.exe"
+if (Test-Path $Zip) {
+    Write-Host "  ZIP:    $Zip"
+}
