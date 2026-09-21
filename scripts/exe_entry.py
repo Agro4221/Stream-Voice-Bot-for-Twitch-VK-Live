@@ -8,14 +8,6 @@ import webbrowser
 from pathlib import Path
 from threading import Thread
 
-import uvicorn
-
-from stream_voice_bot.app import create_app
-
-
-URL = "http://127.0.0.1:8787/"
-TIMEOUT_SECONDS = 120
-
 
 def runtime_root() -> Path:
     if getattr(sys, "frozen", False):
@@ -24,6 +16,16 @@ def runtime_root() -> Path:
 
 
 ROOT = runtime_root()
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import uvicorn
+
+from stream_voice_bot.app import create_app
+
+
+URL = "http://127.0.0.1:8787/"
+TIMEOUT_SECONDS = 120
 
 
 def wait_for_admin_and_open() -> None:
