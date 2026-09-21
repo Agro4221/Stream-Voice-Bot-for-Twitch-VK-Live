@@ -24,8 +24,18 @@ if (-not (Test-Path $VenvPython -PathType Leaf)) {
 if (-not (Test-Path $Model -PathType Leaf) -or ((Get-Item $Model).Length -lt 1MB)) {
     throw "models\v5_ru.pt is missing. Run scripts\install_windows.ps1 first."
 }
-if (-not (Test-Path (Join-Path $NodeRuntime "node.exe") -PathType Leaf)) {
-    throw "Private Node.js runtime is missing. Run scripts\install_windows.ps1 first."
+$PrivateNodeExe = Join-Path $NodeRuntime "node.exe"
+if (-not (Test-Path $PrivateNodeExe -PathType Leaf)) {
+    # The installer may reuse an existing system Node.js. For a portable EXE
+    # bundle we still need a local node.exe so the target PC needs no Node install.
+    $systemNode = Get-Command node -ErrorAction SilentlyContinue
+    if ($systemNode -and (Test-Path $systemNode.Source -PathType Leaf)) {
+        New-Item -ItemType Directory -Force -Path $NodeRuntime | Out-Null
+        Copy-Item $systemNode.Source $PrivateNodeExe -Force
+        Write-Host "Copied system node.exe into .runtime\node for the portable bundle." -ForegroundColor Yellow
+    } else {
+        throw "Node.js runtime is missing. Install Node.js or run scripts\install_windows.ps1 again."
+    }
 }
 if (-not (Test-Path $Bridge -PathType Leaf)) {
     throw "VK bridge is missing: $Bridge"
