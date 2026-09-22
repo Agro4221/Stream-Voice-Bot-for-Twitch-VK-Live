@@ -16,7 +16,13 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('host="127.0.0.1"', src)
         self.assertIn('port=8787', src)
         self.assertIn('webbrowser.open(URL)', src)
+        self.assertIn("def create_desktop_shortcut_once", src)
+        self.assertIn('".desktop_shortcut_created"', src)
+        self.assertIn("subprocess.run(", src)
+        self.assertIn("powershell.exe", src)
+        self.assertIn("CREATE_NO_WINDOW", src)
         self.assertNotIn("subprocess.Popen", src)
+        self.assertNotIn("Create_Desktop_Shortcut.cmd", src)
 
     def test_spec_contains_runtime_assets_and_safe_onedir_layout(self):
         src = self.read("packaging/StreamVoiceBot.spec")
@@ -44,7 +50,9 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn("https://download.pytorch.org/whl/cpu", src)
         self.assertIn("The existing dist/ folder will not be touched.", src)
         self.assertIn("Copy-Item $BuiltBundle $FinalStage -Recurse -Force", src)
-        self.assertIn("Create_Desktop_Shortcut.cmd", src)
+        self.assertIn("Desktop shortcut: created automatically on first EXE launch.", src)
+        self.assertIn("Get-ChildItem $DistRoot -Force", src)
+        self.assertNotIn("Create_Desktop_Shortcut.cmd", src)
         self.assertNotIn("StreamVoiceBotCore.exe", src)
 
     def test_release_build_output_is_ignored(self):
