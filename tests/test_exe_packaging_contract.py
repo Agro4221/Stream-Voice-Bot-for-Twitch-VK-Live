@@ -53,6 +53,9 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn("Copy-Item $BuiltBundle $FinalStage -Recurse -Force", src)
         self.assertIn("Desktop shortcut: created automatically on first EXE launch.", src)
         self.assertIn("Get-ChildItem $DistRoot -Force", src)
+        self.assertIn("FromBase64String", src)
+        self.assertIn("UTF8.GetString", src)
+        self.assertIn("UTF8Encoding]::new($true)", src)
         self.assertNotIn("Create_Desktop_Shortcut.cmd", src)
         self.assertNotIn("StreamVoiceBotCore.exe", src)
 
