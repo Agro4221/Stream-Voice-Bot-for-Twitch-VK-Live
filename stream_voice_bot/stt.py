@@ -60,6 +60,7 @@ class STTService:
         self.audio_q: deque[np.ndarray] = deque(maxlen=200)
         self.last_text = ""
         self.model_loading = False
+        self.model_loading_started_at: float | None = None
         self.message = "STT остановлен"
         self.last_error = ""
         self.input_stream_sample_rate: int | None = None
@@ -79,6 +80,7 @@ class STTService:
             "running": bool(self.thread and self.thread.is_alive()),
             "model_loading": bool(self.model_loading),
             "model_loaded": self.model is not None,
+            "loading_seconds": round(max(0.0, time.monotonic() - self.model_loading_started_at), 1) if self.model_loading and self.model_loading_started_at else 0.0,
             "model": self.config.model_name,
             "language": self.config.language,
             "input_device": self.config.input_device,
@@ -123,12 +125,13 @@ class STTService:
             )
 
     def _load_model(self):
+        self.model_loading_started_at = self.model_loading_started_at or time.monotonic()
         if self.model is not None:
             return
         self._emit(
             running=False,
             model_loading=True,
-            message=f"Загрузка STT: {self.config.model_name}…",
+            message=f"Загрузка STT: {self.config.model_name}… Первый запуск может занять несколько минут.",
             last_error="",
         )
         try:
@@ -159,6 +162,7 @@ class STTService:
                 )
             except Exception as cpu_error:
                 self.model = None
+                self.model_loading_started_at = None
                 self._emit(
                     running=False,
                     model_loading=False,
@@ -166,6 +170,7 @@ class STTService:
                     last_error=f"{type(cpu_error).__name__}: {cpu_error}",
                 )
                 raise
+        self.model_loading_started_at = None
         self._emit(
             running=False,
             model_loading=False,
@@ -184,6 +189,7 @@ class STTService:
                 return
             self.stop_event.clear()
             self.audio_q.clear()
+            self.model_loading_started_at = time.monotonic()
             self.start_thread = threading.Thread(target=self._start_worker, name="stt-start", daemon=True)
             self.start_thread.start()
         self._emit(running=False, model_loading=True, message=f"Запуск STT: загрузка {self.config.model_name}…", last_error="")
@@ -192,6 +198,7 @@ class STTService:
         try:
             self._load_model()
             if self.stop_event.is_set():
+                self.model_loading_started_at = None
                 self._emit(running=False, model_loading=False, message="STT остановлен")
                 return
             worker = threading.Thread(target=self._run, name="stt-worker", daemon=True)
