@@ -10,6 +10,20 @@ import stream_voice_bot.stt as stt_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
+    def test_stt_filters_subtitle_credit_hallucination(self):
+        class Segment:
+            avg_logprob = -0.1
+            no_speech_prob = 0.1
+            compression_ratio = 1.2
+
+        self.assertTrue(
+            stt_module._should_skip_segment(
+                Segment(),
+                "Subtitles made by Dima Torzok",
+            )
+        )
+        self.assertFalse(stt_module._should_skip_segment(Segment(), "Привет, это тест."))
+
     def test_stt_model_and_device_changes_do_not_break_active_model(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
