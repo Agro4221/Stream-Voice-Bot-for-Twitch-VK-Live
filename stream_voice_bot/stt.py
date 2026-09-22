@@ -207,6 +207,7 @@ class STTService:
             )
             self.runtime_device = "cpu"
             self.runtime_compute_type = "int8"
+            self.loaded_model_key = (str(self.config.model_name), mode)
 
         def load_cuda():
             self._emit(
