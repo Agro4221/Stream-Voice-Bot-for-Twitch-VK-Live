@@ -186,6 +186,63 @@ function New-IcoFromPng {
     [System.IO.File]::WriteAllBytes($IcoPath, $ico)
 }
 
+function Find-SignTool {
+    $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $kitsRoot = Join-Path $env:ProgramFiles(x86) "Windows Kits\10\bin"
+    if (Test-Path $kitsRoot) {
+        $candidate = Get-ChildItem -Path $kitsRoot -Filter signtool.exe -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($candidate) { return $candidate.FullName }
+    }
+
+    return $null
+}
+
+function Sign-BuiltExe {
+    param([string]$ExePath)
+
+    $pfxBase64 = $env:STREAMVOICEBOT_PFX_BASE64
+    $pfxPassword = $env:STREAMVOICEBOT_PFX_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($pfxBase64) -or [string]::IsNullOrWhiteSpace($pfxPassword)) {
+        Write-Host "Code signing not configured. The EXE will be unsigned." -ForegroundColor Yellow
+        Write-Host "Configure STREAMVOICEBOT_PFX_BASE64 and STREAMVOICEBOT_PFX_PASSWORD for Authenticode signing." -ForegroundColor Yellow
+        return
+    }
+
+    $signTool = Find-SignTool
+    if (-not $signTool) {
+        throw "A signing certificate is configured, but signtool.exe was not found."
+    }
+
+    $pfxPath = Join-Path $env:TEMP ("StreamVoiceBot-" + [Guid]::NewGuid().ToString("N") + ".pfx")
+    try {
+        [System.IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($pfxBase64))
+        Write-Host "Signing StreamVoiceBot.exe with Authenticode..." -ForegroundColor Cyan
+        Invoke-Checked $signTool @(
+            "sign",
+            "/fd", "SHA256",
+            "/f", $pfxPath,
+            "/p", $pfxPassword,
+            "/tr", "http://timestamp.digicert.com",
+            "/td", "SHA256",
+            $ExePath
+        ) "Authenticode signing failed."
+
+        $signature = Get-AuthenticodeSignature -FilePath $ExePath
+        if ($signature.Status -ne "Valid") {
+            throw "Authenticode signature is not valid after signing: $($signature.Status)"
+        }
+        Write-Host ("Code signing: VALID ({0})" -f $signature.SignerCertificate.Subject) -ForegroundColor Green
+    }
+    finally {
+        Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Ensure-NodeRuntime {
     if (-not (Test-Path $NodeExe -PathType Leaf)) {
         $systemNode = Get-Command node -ErrorAction SilentlyContinue
