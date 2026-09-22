@@ -120,6 +120,10 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("self.translator.translate(", src)
         self.assertIn("source_text, source_language, target", src)
         self.assertIn("stt-translate-", src)
+        self.assertIn("def _should_skip_segment", src)
+        self.assertIn("_HALLUCINATION_CREDIT_RE", src)
+        self.assertIn('"min_silence_duration_ms": 500', src)
+        self.assertIn('"speech_pad_ms": 150', src)
 
 
 
