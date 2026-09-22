@@ -165,15 +165,27 @@ def create_app(root: Path) -> FastAPI:
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
 
-    # Restore the historical stable subtitle window on existing installs that
-    # still have the experimental 2.0/2.5s + 0.25s settings.
+    # Keep existing installs on a known live-caption window. Older releases
+    # used experimental 2.0/2.5s + 0.25s settings; the 1.1.11 candidate briefly
+    # moved to 4.0/0.5, which is too slow for live captions. Migrate those
+    # known windows to the restored 2.5/0.25 profile once.
     if db.get_setting("stt_stable_window_migrated") != "1":
         saved_chunk = db.get_setting("stt_chunk_seconds", "")
         saved_overlap = db.get_setting("stt_overlap_seconds", "")
         if saved_chunk in {"2", "2.0", "2.5", "2.50"} and saved_overlap in {"0.25", ".25"}:
-            db.set_setting("stt_chunk_seconds", "4.0")
-            db.set_setting("stt_overlap_seconds", "0.5")
+            db.set_setting("stt_chunk_seconds", "2.5")
+            db.set_setting("stt_overlap_seconds", "0.25")
         db.set_setting("stt_stable_window_migrated", "1")
+
+    # Existing 1.1.11 candidate installs already have the stable-window marker
+    # set and therefore need a separate one-time migration from 4.0/0.5.
+    if db.get_setting("stt_live_latency_v2_migrated") != "1":
+        saved_chunk = db.get_setting("stt_chunk_seconds", "")
+        saved_overlap = db.get_setting("stt_overlap_seconds", "")
+        if saved_chunk in {"4", "4.0", "4.00"} and saved_overlap in {"0.5", ".5", "0.50"}:
+            db.set_setting("stt_chunk_seconds", "2.5")
+            db.set_setting("stt_overlap_seconds", "0.25")
+        db.set_setting("stt_live_latency_v2_migrated", "1")
 
     db.prune_history(max_rows=50000)
 
