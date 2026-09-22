@@ -34,7 +34,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertNotIn('content-factory-favicon.png",\n        "packaging"', src)
         self.assertIn('[str(PROJECT_ROOT / "scripts" / "exe_entry.py")]', src)
         self.assertIn("exclude_binaries=True", src)
-        self.assertIn('contents_directory="."', src)
+        self.assertIn('contents_directory="_internal"', src)
         self.assertIn("collect_dynamic_libs(package)", src)
         self.assertIn('"torch",', src)
         self.assertNotIn("collect_all", src)
