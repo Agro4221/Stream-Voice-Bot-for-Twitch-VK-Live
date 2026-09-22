@@ -20,8 +20,8 @@ class STTConfig:
     language: str = "ru"
     input_device: int | None = None
     sample_rate: int = 16000
-    chunk_seconds: float = 2.5
-    overlap_seconds: float = 0.25
+    chunk_seconds: float = 4.0
+    overlap_seconds: float = 0.5
     beam_size: int = 1
     compute_type: str = "float16"
 
@@ -45,8 +45,8 @@ class STTService:
             language=db.get_setting("stt_language", "ru"),
             input_device=int(db.get_setting("stt_input_device")) if db.get_setting("stt_input_device") else None,
             sample_rate=int(db.get_setting("stt_sample_rate", "16000")),
-            chunk_seconds=float(db.get_setting("stt_chunk_seconds", "2.5")),
-            overlap_seconds=float(db.get_setting("stt_overlap_seconds", "0.25")),
+            chunk_seconds=float(db.get_setting("stt_chunk_seconds", "4.0")),
+            overlap_seconds=float(db.get_setting("stt_overlap_seconds", "0.5")),
             beam_size=int(db.get_setting("stt_beam_size", "1")),
             compute_type=db.get_setting("stt_compute_type", "float16"),
         )
@@ -445,30 +445,18 @@ class STTService:
                                 target_language = str(track.get("language", "")).strip().lower().split("-")[0]
                                 if not target_language or target_language == detected_language.lower().split("-")[0]:
                                     continue
-
-                                def translate_one(
-                                    track_id=track.get("id", target_language),
-                                    target=target_language,
-                                    source_text=text,
-                                    source_language=detected_language,
-                                    segment_start=start,
-                                    segment_end=end,
-                                    timestamp=ts,
-                                ):
-                                    try:
-                                        translated = self.translator.translate(
-                                            source_text, source_language, target
-                                        )
-                                        if translated:
-                                            self.on_subtitle({
-                                                "track_id": track_id,
-                                                "text": translated,
-                                                "start": segment_start,
-                                                "end": segment_end,
-                                                "language": target,
-                                                "timestamp": timestamp,
-                                            })
-                                    except Exception as e:
+                                try:
+                                    translated = self.translator.translate(text, detected_language, target_language)
+                                    if translated:
+                                        self.on_subtitle({
+                                            "track_id": track.get("id", target_language),
+                                            "text": translated,
+                                            "start": start,
+                                            "end": end,
+                                            "language": target_language,
+                                            "timestamp": ts,
+                                        })
+                                except Exception as e:
                                         self._emit(
                                             running=True,
                                             message=f"Перевод {source_language} → {target}: {type(e).__name__}: {e}",
