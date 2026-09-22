@@ -5,6 +5,10 @@ on:
     branches: ["exe-packaging-v1.1.9-release-candidate"]
   workflow_dispatch:
 
+concurrency:
+  group: exe-build-candidate
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
