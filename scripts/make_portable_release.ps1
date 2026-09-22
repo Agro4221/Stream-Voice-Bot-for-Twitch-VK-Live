@@ -22,8 +22,8 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 try {
   $items = @(
-    "README.md", "README_RU.md", "SECURITY.md", "START_HERE_RU.md", "LICENSE", "THIRD_PARTY_NOTICES.md", ".gitignore", ".gitattributes",
-    "requirements.txt", "VERSION", "start_bot.bat", "start_bot_minimized.bat", "run_windows.ps1",
+    "README.md", "SECURITY.md", "LICENSE", "THIRD_PARTY_NOTICES.md", ".gitignore", ".gitattributes",
+    "requirements.txt", "VERSION", "start_bot.bat", "run_windows.ps1",
     "scripts", "stream_voice_bot", "models"
   )
   foreach ($item in $items) {
