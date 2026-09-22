@@ -113,6 +113,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
         self.assertIn("chunk_seconds: float = 2.5", src)
         self.assertIn("overlap_seconds: float = 0.25", src)
+        self.assertIn("model_loading_started_at", src)
+        self.assertIn("\"loading_seconds\":", src)
         self.assertIn("source_audio = buf[-chunk_samples:]", src)
         self.assertIn("while self.audio_q:", src)
         self.assertIn("self.translator.translate(", src)
