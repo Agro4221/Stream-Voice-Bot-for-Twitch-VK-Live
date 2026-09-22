@@ -28,13 +28,14 @@ datas = [
         str(PROJECT_ROOT / "stream_voice_bot" / "vk_bridge"),
         "stream_voice_bot/vk_bridge",
     ),
+]
+
+binaries = [
     (
         str(PROJECT_ROOT / ".runtime" / "node" / "node.exe"),
         ".runtime/node",
     ),
 ]
-
-binaries = []
 hiddenimports = [
     # Silero V5 code inside the torch.package model imports wave dynamically;
     # PyInstaller cannot see imports embedded in the packaged .pt archive.
