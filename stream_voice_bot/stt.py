@@ -3,8 +3,8 @@ from __future__ import annotations
 import ctypes
 import sys
 import threading
-import time
 import re
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable
@@ -15,12 +15,9 @@ from faster_whisper import WhisperModel
 from scipy.signal import resample_poly
 
 
-@dataclass
-
-
 _HALLUCINATION_CREDIT_RE = re.compile(
-    r"(?:\\b(?:subtitles?|captions?)\\s+(?:made|created|provided)\\s+by\\b|"
-    r"\\b(?:субтитры|субтитров)\\s+(?:сделан|создан|предоставлен)(?:ы|о)?\\s+(?:кем|автором)?\\b)",
+    r"(?:\b(?:subtitles?|captions?)\s+(?:made|created|provided)\s+by\b|"
+    r"\b(?:субтитры|субтитров)\s+(?:сделан|создан|предоставлен)(?:ы|о)?\s+(?:кем|автором)?\b)",
     re.IGNORECASE,
 )
 
@@ -54,6 +51,7 @@ def _should_skip_segment(segment, text: str) -> bool:
     return False
 
 
+@dataclass
 class STTConfig:
     model_name: str = "large-v3-turbo"
     language: str = "ru"
