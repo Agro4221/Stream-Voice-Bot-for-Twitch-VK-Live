@@ -241,6 +241,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
     <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
     <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
+    <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">CUDA (NVIDIA)</option><option value="cpu">CPU int8</option></select></div>
     <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
@@ -248,7 +249,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">STT запускается с попыткой CUDA на NVIDIA GPU. Если совместимый CUDA/cuDNN runtime недоступен, приложение автоматически переходит на CPU int8. Первый запуск модели может скачать её с Hugging Face.</div>
+  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, CUDA (NVIDIA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA и при недоступности автоматически переходит на CPU. Для CUDA нужен совместимый NVIDIA-драйвер и CUDA 12.x + cuDNN 8 на системе.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
 </section>
 
@@ -558,7 +559,8 @@ async function refresh(){
       stt_language:s.stt.language||'ru',
       stt_chunk:s.stt.chunk_seconds||2.5,
       stt_overlap:s.stt.overlap_seconds??0.25,
-      stt_compute:s.stt.compute_type||'float16'
+      stt_compute:s.stt.compute_type||'float16',
+      stt_device:s.stt.device_mode||'auto'
     };
     Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
     document.getElementById('sttDirty').style.display=Object.keys(sttFields).concat(['stt_input']).some(id=>{
@@ -882,9 +884,10 @@ async function saveStt(){
       input_device:parseInt(document.getElementById('stt_input').value,10),
       chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
       overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
-      compute_type:document.getElementById('stt_compute').value
+      compute_type:document.getElementById('stt_compute').value,
+      device_mode:document.getElementById('stt_device').value
     })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute'].forEach(clearEditableState);
+    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
     document.getElementById('sttInfo').textContent='STT настройки сохранены.';
     refresh();
