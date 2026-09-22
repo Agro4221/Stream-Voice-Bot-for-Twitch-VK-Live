@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -49,6 +51,68 @@ def show_error(message: str) -> None:
         pass
 
 
+def create_desktop_shortcut_once() -> None:
+    """Create the app's desktop shortcut on the first EXE launch only."""
+    if not getattr(sys, "frozen", False):
+        return
+
+    target = Path(sys.executable).resolve()
+    marker = DATA_DIR / ".desktop_shortcut_created"
+    try:
+        if marker.is_file():
+            saved_target = marker.read_text(encoding="utf-8").strip()
+            if saved_target.casefold() == str(target).casefold():
+                return
+    except OSError:
+        pass
+
+    env = os.environ.copy()
+    env["STREAMVOICEBOT_SHORTCUT_TARGET"] = str(target)
+    powershell = shutil.which("powershell.exe") or "powershell.exe"
+    script = r'''
+$ErrorActionPreference = 'Stop'
+$target = $env:STREAMVOICEBOT_SHORTCUT_TARGET
+if ([string]::IsNullOrWhiteSpace($target) -or -not (Test-Path -LiteralPath $target -PathType Leaf)) {
+    throw "Stream Voice Bot executable was not found: $target"
+}
+$desktop = [Environment]::GetFolderPath('Desktop')
+if ([string]::IsNullOrWhiteSpace($desktop)) {
+    throw 'Windows Desktop folder could not be resolved.'
+}
+$link = Join-Path $desktop 'Stream Voice Bot.lnk'
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($link)
+$shortcut.TargetPath = $target
+$shortcut.WorkingDirectory = [IO.Path]::GetDirectoryName($target)
+$shortcut.IconLocation = "$target,0"
+$shortcut.Description = 'Stream Voice Bot'
+$shortcut.Save()
+'''
+
+    try:
+        result = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+             "-ExecutionPolicy", "Bypass", "-Command", script],
+            check=False,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip()
+            boot_log("Desktop shortcut creation failed" + (f": {detail}" if detail else "."))
+            return
+
+        marker.write_text(str(target), encoding="utf-8")
+        boot_log("Desktop shortcut created: Stream Voice Bot.lnk")
+    except Exception as exc:
+        boot_log(f"Desktop shortcut creation skipped: {type(exc).__name__}: {exc}")
+
+
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -89,6 +153,7 @@ try:
     boot_log(f"Starting application from root: {ROOT}")
     app = create_app(ROOT)
     boot_log("create_app completed successfully.")
+    create_desktop_shortcut_once()
 except Exception:
     details = traceback.format_exc()
     boot_log("create_app failure:\n" + details)
