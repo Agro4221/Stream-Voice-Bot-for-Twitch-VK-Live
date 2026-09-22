@@ -104,12 +104,40 @@ jobs:
               throw "Packaged EXE did not load bundled Silero model during TTS smoke test."
             }
             Write-Host "Packaged EXE Silero smoke test: OK"
+
+            $desktop = [Environment]::GetFolderPath("Desktop")
+            $shortcutPath = Join-Path $desktop "Stream Voice Bot.lnk"
+            if (-not (Test-Path $shortcutPath -PathType Leaf)) {
+              throw "Packaged EXE did not create the desktop shortcut on first launch."
+            }
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            $targetPath = [IO.Path]::GetFullPath($shortcut.TargetPath)
+            $expectedPath = [IO.Path]::GetFullPath($exe.Path)
+            if ($targetPath -ne $expectedPath) {
+              throw "Desktop shortcut target mismatch. Expected=$expectedPath Actual=$targetPath"
+            }
+            Write-Host "Packaged EXE desktop shortcut smoke test: OK"
             # Functional integration checks require real Twitch/VK credentials and
             # a Windows audio environment, so those are covered by the manual test.
           } finally {
             if ($process -and -not $process.HasExited) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
             }
+          }
+
+      - name: Clean runtime residue before artifact upload
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $root = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
+          $dataDir = Join-Path $root "data"
+          if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
+          Get-ChildItem $root -Recurse -Force -File |
+            Where-Object { $_.Extension -in @(".log", ".sqlite3", ".db", ".wav", ".part") } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          if (Test-Path (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk")) {
+            Remove-Item (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk") -Force -ErrorAction SilentlyContinue
           }
 
       - name: Inspect bundle size
