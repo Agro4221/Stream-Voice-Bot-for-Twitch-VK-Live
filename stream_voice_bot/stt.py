@@ -4,6 +4,7 @@ import ctypes
 import sys
 import threading
 import time
+import re
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable
@@ -15,6 +16,44 @@ from scipy.signal import resample_poly
 
 
 @dataclass
+
+
+_HALLUCINATION_CREDIT_RE = re.compile(
+    r"(?:\\b(?:subtitles?|captions?)\\s+(?:made|created|provided)\\s+by\\b|"
+    r"\\b(?:субтитры|субтитров)\\s+(?:сделан|создан|предоставлен)(?:ы|о)?\\s+(?:кем|автором)?\\b)",
+    re.IGNORECASE,
+)
+
+
+def _should_skip_segment(segment, text: str) -> bool:
+    """Reject common Whisper hallucinations before they reach subtitles/translation."""
+    normalized = " ".join(str(text or "").split())
+    if not normalized:
+        return True
+    if _HALLUCINATION_CREDIT_RE.search(normalized):
+        return True
+
+    avg_logprob = getattr(segment, "avg_logprob", None)
+    no_speech_prob = getattr(segment, "no_speech_prob", None)
+    compression_ratio = getattr(segment, "compression_ratio", None)
+    try:
+        if (
+            no_speech_prob is not None
+            and avg_logprob is not None
+            and float(no_speech_prob) >= 0.90
+            and float(avg_logprob) < -0.40
+        ):
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        if compression_ratio is not None and float(compression_ratio) > 3.2:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
 class STTConfig:
     model_name: str = "large-v3-turbo"
     language: str = "ru"
@@ -417,6 +456,10 @@ class STTService:
                         language=self.config.language or None,
                         beam_size=self.config.beam_size,
                         vad_filter=True,
+                        vad_parameters={
+                            "min_silence_duration_ms": 500,
+                            "speech_pad_ms": 150,
+                        },
                         condition_on_previous_text=False,
                         temperature=0,
                     )
@@ -425,7 +468,7 @@ class STTService:
                     end = None
                     for seg in segments:
                         t = (seg.text or "").strip()
-                        if not t:
+                        if not t or _should_skip_segment(seg, t):
                             continue
                         texts.append(t)
                         start = seg.start if start is None else min(start, seg.start)
