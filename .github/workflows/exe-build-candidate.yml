@@ -13,6 +13,8 @@ jobs:
     runs-on: windows-latest
     env:
       PIP_NO_CACHE_DIR: "1"
+      STREAMVOICEBOT_PFX_BASE64: ${{ secrets.STREAMVOICEBOT_PFX_BASE64 }}
+      STREAMVOICEBOT_PFX_PASSWORD: ${{ secrets.STREAMVOICEBOT_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
 

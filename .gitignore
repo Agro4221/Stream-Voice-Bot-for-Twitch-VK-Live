@@ -43,3 +43,6 @@ secrets.json
 Thumbs.db
 
 stream_voice_bot_gaming.pid
+
+# Generated application icon
+packaging/StreamVoiceBot.ico

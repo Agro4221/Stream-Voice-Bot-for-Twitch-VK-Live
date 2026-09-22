@@ -21,6 +21,10 @@ datas = [
         "models",
     ),
     (
+        str(PROJECT_ROOT / "packaging" / "content-factory-favicon.png"),
+        "packaging",
+    ),
+    (
         str(PROJECT_ROOT / "stream_voice_bot" / "web"),
         "stream_voice_bot/web",
     ),
@@ -88,6 +92,7 @@ exe = EXE(
     a.scripts,
     exclude_binaries=True,
     name="StreamVoiceBot",
+    icon=str(PROJECT_ROOT / "packaging" / "StreamVoiceBot.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
