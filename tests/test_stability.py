@@ -10,6 +10,21 @@ import stream_voice_bot.stt as stt_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
+    def test_stt_model_and_device_changes_do_not_break_active_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            active_model = object()
+            service.model = active_model
+            service.runtime_device = "cpu"
+            service.loaded_model_key = ("large-v3-turbo", "cpu")
+
+            service.save_config(model_name="small", device_mode="cuda")
+
+            self.assertIs(service.model, active_model)
+            self.assertEqual(service.config.model_name, "small")
+            self.assertEqual(service.config.device_mode, "cuda")
+
     def test_stt_falls_back_to_device_supported_sample_rate(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
