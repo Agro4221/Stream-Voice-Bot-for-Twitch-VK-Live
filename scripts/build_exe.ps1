@@ -312,6 +312,12 @@ $WorkRoot = Join-Path $BuildRoot "work"
 $BuiltBundle = Join-Path $DistRoot "StreamVoiceBot"
 $FinalStage = Join-Path $DistRoot ("StreamVoiceBot_{0}" -f $Version)
 
+if (Test-Path $DistRoot) {
+    Get-ChildItem $DistRoot -Force |
+        Where-Object { $_.Name -eq "StreamVoiceBot" -or $_.Name -like "StreamVoiceBot_*" } |
+        Remove-Item -Recurse -Force
+}
+
 if (Test-Path $WorkRoot) {
     Remove-Item $WorkRoot -Recurse -Force
 }
@@ -343,12 +349,6 @@ Sign-BuiltExe $BuiltExe
 
 Write-Host "Preparing isolated versioned release folder..." -ForegroundColor Cyan
 Copy-Item $BuiltBundle $FinalStage -Recurse -Force
-Copy-Item (Join-Path $ProjectRoot "scripts\Create_Desktop_Shortcut.cmd") $FinalStage -Force
-
-$ShortcutScript = Join-Path $ProjectRoot "scripts\Create_Desktop_Shortcut.cmd"
-if (Test-Path $ShortcutScript -PathType Leaf) {
-    Copy-Item $ShortcutScript (Join-Path $FinalStage "Create_Desktop_Shortcut.cmd") -Force
-}
 
 $Readme = Join-Path $FinalStage "README_EXE.txt"
 @"
@@ -359,9 +359,9 @@ Stream Voice Bot v$Version
 2. Админка автоматически откроется:
    http://127.0.0.1:8787/
 
-Ярлык:
-- Запусти Create_Desktop_Shortcut.cmd из этой папки.
-- На рабочем столе появится "Stream Voice Bot.lnk" с иконкой приложения.
+Ярлык рабочего стола:
+- При первом запуске StreamVoiceBot.exe автоматически создаётся "Stream Voice Bot.lnk".
+- Повторные запуски этой копии приложения не пересоздают ярлык без необходимости.
 
 SmartScreen:
 - Без доверенной цифровой подписи Windows может показать предупреждение "Windows защитила ваш компьютер".
@@ -384,8 +384,7 @@ $RequiredFiles = @(
     (Join-Path $FinalStage "stream_voice_bot\web\index.html"),
     (Join-Path $FinalStage "stream_voice_bot\vk_bridge\bridge.js"),
     (Join-Path $FinalStage ".runtime\node\node.exe"),
-    (Join-Path $FinalStage "VERSION"),
-    (Join-Path $FinalStage "Create_Desktop_Shortcut.cmd")
+    (Join-Path $FinalStage "VERSION")
 )
 
 foreach ($required in $RequiredFiles) {
@@ -406,6 +405,7 @@ Write-Host ""
 Write-Host "BUILD SUCCESS" -ForegroundColor Green
 Write-Host "Clean EXE bundle: $FinalStage"
 Write-Host "Launcher:         $FinalStage\StreamVoiceBot.exe"
+Write-Host "Desktop shortcut: created automatically on first EXE launch."
 Write-Host ""
 Write-Host "Existing dist/ and build/ folders were not modified."
 Write-Host "For distribution, archive the whole versioned folder."
