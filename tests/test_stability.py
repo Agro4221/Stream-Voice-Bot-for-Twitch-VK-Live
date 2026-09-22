@@ -14,8 +14,8 @@ class StabilityDatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
             service = stt_module.STTService(db, lambda _: None, lambda _: None)
-            self.assertEqual(service.config.chunk_seconds, 4.0)
-            self.assertEqual(service.config.overlap_seconds, 0.5)
+            self.assertEqual(service.config.chunk_seconds, 2.5)
+            self.assertEqual(service.config.overlap_seconds, 0.25)
             service.config.sample_rate = 16000
             service.config.input_device = 3
 
