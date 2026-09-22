@@ -11,6 +11,7 @@ data/*.sqlite3
 *.sqlite3
 *.db
 *.log
+data/.desktop_shortcut_created
 
 # Generated audio
 *.wav
@@ -46,3 +47,7 @@ stream_voice_bot_gaming.pid
 
 # Generated application icon
 packaging/StreamVoiceBot.ico
+
+# Local release archives
+StreamVoiceBot_*_Windows_x64.zip
+StreamVoiceBot_*_Windows_x64.zip.sha256
