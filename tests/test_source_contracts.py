@@ -110,6 +110,10 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("CoInitialize(None)", src)
         self.assertIn("CoUninitialize()", src)
         self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
+        self.assertIn("chunk_seconds: float = 4.0", src)
+        self.assertIn("overlap_seconds: float = 0.5", src)
+        self.assertIn("self.translator.translate(text, detected_language, target_language)", src)
+        self.assertNotIn("stt-translate-", src)
 
 
 if __name__ == "__main__":
