@@ -21,10 +21,6 @@ datas = [
         "models",
     ),
     (
-        str(PROJECT_ROOT / "packaging" / "content-factory-favicon.png"),
-        "packaging",
-    ),
-    (
         str(PROJECT_ROOT / "stream_voice_bot" / "web"),
         "stream_voice_bot/web",
     ),
@@ -33,7 +29,7 @@ datas = [
         "stream_voice_bot/vk_bridge",
     ),
     (
-        str(PROJECT_ROOT / ".runtime" / "node"),
+        str(PROJECT_ROOT / ".runtime" / "node" / "node.exe"),
         ".runtime/node",
     ),
 ]
