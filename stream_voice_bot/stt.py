@@ -61,6 +61,7 @@ class STTConfig:
     overlap_seconds: float = 0.25
     beam_size: int = 1
     compute_type: str = "float16"
+    device_mode: str = "auto"
 
 
 class STTService:
@@ -86,6 +87,7 @@ class STTService:
             overlap_seconds=float(db.get_setting("stt_overlap_seconds", "0.25")),
             beam_size=int(db.get_setting("stt_beam_size", "1")),
             compute_type=db.get_setting("stt_compute_type", "float16"),
+            device_mode=db.get_setting("stt_device", "auto"),
         )
         self.model = None
         self.runtime_device: str | None = None
@@ -121,6 +123,7 @@ class STTService:
             "model_loaded": self.model is not None,
             "device": self.runtime_device,
             "runtime_compute_type": self.runtime_compute_type,
+            "device_mode": self.config.device_mode,
             "loading_seconds": round(max(0.0, time.monotonic() - self.model_loading_started_at), 1) if self.model_loading and self.model_loading_started_at else 0.0,
             "model": self.config.model_name,
             "language": self.config.language,
@@ -150,6 +153,7 @@ class STTService:
             "overlap_seconds": "stt_overlap_seconds",
             "beam_size": "stt_beam_size",
             "compute_type": "stt_compute_type",
+            "device_mode": "stt_device",
         }
         model_changed = False
         for key, value in kwargs.items():
@@ -169,60 +173,98 @@ class STTService:
         self.model_loading_started_at = self.model_loading_started_at or time.monotonic()
         if self.model is not None:
             return
+
+        mode = str(self.config.device_mode or "auto").strip().lower()
+        if mode not in {"auto", "cuda", "cpu"}:
+            mode = "auto"
+            self.config.device_mode = mode
+
         self._emit(
             running=False,
             model_loading=True,
             message=f"Загрузка STT: {self.config.model_name}… Первый запуск может занять несколько минут.",
             last_error="",
         )
-        try:
-            # Try CUDA first on Windows EXE builds. CTranslate2 can use
-            # NVIDIA GPU execution when the compatible CUDA/cuDNN runtime is
-            # available on the machine. If the runtime is missing or the GPU
-            # cannot be initialized, fall back to CPU int8 automatically.
-            frozen = bool(getattr(sys, "frozen", False))
-            device = "cuda"
-            compute_type = "float16" if frozen else self.config.compute_type
+
+        def load_cpu():
             self._emit(
                 running=False,
                 model_loading=True,
-                message=f"Загрузка STT: {self.config.model_name} на NVIDIA GPU…",
+                message=f"Загрузка STT: {self.config.model_name} на CPU int8…",
             )
             self.model = WhisperModel(
                 self.config.model_name,
-                device=device,
-                compute_type=compute_type,
+                device="cpu",
+                compute_type="int8",
             )
-        except Exception as gpu_error:
+            self.runtime_device = "cpu"
+            self.runtime_compute_type = "int8"
+
+        def load_cuda():
             self._emit(
                 running=False,
                 model_loading=True,
-                message=f"CUDA STT недоступен: {type(gpu_error).__name__}: {gpu_error}. Пробую CPU int8…",
+                message=f"Загрузка STT: {self.config.model_name} на NVIDIA CUDA…",
             )
-            try:
-                self.model = WhisperModel(
-                    self.config.model_name,
-                    device="cpu",
-                    compute_type="int8",
-                )
-                self.runtime_device = "cpu"
-                self.runtime_compute_type = "int8"
-            except Exception as cpu_error:
-                self.model = None
-                self.model_loading_started_at = None
-                self._emit(
-                    running=False,
-                    model_loading=False,
-                    message=f"Ошибка загрузки STT: {type(cpu_error).__name__}: {cpu_error}",
-                    last_error=f"{type(cpu_error).__name__}: {cpu_error}",
-                )
-                raise
+            self.model = WhisperModel(
+                self.config.model_name,
+                device="cuda",
+                compute_type="float16",
+            )
+            self.runtime_device = "cuda"
+            self.runtime_compute_type = "float16"
+
+        try:
+            if mode == "cpu":
+                load_cpu()
+            elif mode == "cuda":
+                try:
+                    load_cuda()
+                except Exception as e:
+                    self.model = None
+                    self.runtime_device = None
+                    self.runtime_compute_type = None
+                    raise RuntimeError(
+                        f"CUDA выбрана, но STT не удалось запустить: {type(e).__name__}: {e}"
+                    ) from e
+            else:
+                try:
+                    load_cuda()
+                except Exception as gpu_error:
+                    self.model = None
+                    self.runtime_device = None
+                    self.runtime_compute_type = None
+                    self._emit(
+                        running=False,
+                        model_loading=True,
+                        message=(
+                            f"CUDA недоступна ({type(gpu_error).__name__}); "
+                            "автоматически перехожу на CPU int8…"
+                        ),
+                    )
+                    load_cpu()
+        except Exception as e:
+            self.model = None
+            self.runtime_device = None
+            self.runtime_compute_type = None
+            self.model_loading_started_at = None
+            self._emit(
+                running=False,
+                model_loading=False,
+                message=f"Ошибка загрузки STT: {type(e).__name__}: {e}",
+                last_error=f"{type(e).__name__}: {e}",
+            )
+            raise
+
         self.model_loading_started_at = None
         self._emit(
             running=False,
             model_loading=False,
             model_loaded=True,
-            message="STT модель готова ✓",
+            message=(
+                "STT модель готова ✓ "
+                f"(устройство: {self.runtime_device}, режим: {self.runtime_compute_type})"
+            ),
             last_error="",
         )
 
