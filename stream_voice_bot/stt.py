@@ -156,18 +156,20 @@ class STTService:
             "compute_type": "stt_compute_type",
             "device_mode": "stt_device",
         }
-        model_changed = False
+        restart_required = False
+        restart_reasons = []
         for key, value in kwargs.items():
             if key in allowed and value is not None:
-                if key == "model_name" and value != self.config.model_name:
-                    model_changed = True
+                if key in {"model_name", "device_mode"} and value != getattr(self.config, key):
+                    restart_required = True
+                    restart_reasons.append("модель" if key == "model_name" else "устройство")
                 setattr(self.config, key, value)
                 self.db.set_setting(allowed[key], str(value))
-        if model_changed:
-            self.model = None
+        if restart_required:
+            reason_text = " и ".join(restart_reasons)
             self._emit(
                 running=bool(self.thread and self.thread.is_alive()),
-                message="Модель STT изменена; новая модель загрузится при следующем запуске STT.",
+                message=f"Изменение ({reason_text}) STT применится при следующем запуске STT.",
             )
 
     def _load_model(self):
