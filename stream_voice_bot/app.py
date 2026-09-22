@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import sounddevice as sd
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
@@ -542,6 +542,41 @@ def create_app(root: Path) -> FastAPI:
         if not track_id or not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
             raise HTTPException(400, "Invalid subtitle track id")
         return html_no_cache(root / "stream_voice_bot" / "web" / "subtitles.html")
+
+    @app.get("/api/subtitles/stream/{track_id}")
+    async def subtitles_stream(track_id: str):
+        track_id = track_id.strip().lower()
+        if not track_id or not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
+            raise HTTPException(400, "Invalid subtitle track id")
+
+        async def event_stream():
+            last_timestamp = 0.0
+            while True:
+                with subtitle_lock:
+                    item = dict(subtitle_state.get(track_id) or {})
+                timestamp = float(item.get("timestamp") or 0.0)
+                if timestamp and timestamp != last_timestamp:
+                    last_timestamp = timestamp
+                    payload = {
+                        "text": str(item.get("text") or ""),
+                        "timestamp": timestamp,
+                        "language": str(item.get("language") or ""),
+                    }
+                    yield "data: " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n\n"
+                else:
+                    # Keep the connection alive without polling /api/state.
+                    yield ": keepalive\n\n"
+                await asyncio.sleep(0.05)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/api/state")
     async def state():
