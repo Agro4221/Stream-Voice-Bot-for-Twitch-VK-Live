@@ -88,6 +88,8 @@ class STTService:
             compute_type=db.get_setting("stt_compute_type", "float16"),
         )
         self.model = None
+        self.runtime_device: str | None = None
+        self.runtime_compute_type: str | None = None
         self.thread: threading.Thread | None = None
         self.start_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
@@ -117,6 +119,8 @@ class STTService:
             "running": bool(self.thread and self.thread.is_alive()),
             "model_loading": bool(self.model_loading),
             "model_loaded": self.model is not None,
+            "device": self.runtime_device,
+            "runtime_compute_type": self.runtime_compute_type,
             "loading_seconds": round(max(0.0, time.monotonic() - self.model_loading_started_at), 1) if self.model_loading and self.model_loading_started_at else 0.0,
             "model": self.config.model_name,
             "language": self.config.language,
@@ -172,14 +176,18 @@ class STTService:
             last_error="",
         )
         try:
-            # The portable Windows EXE is intentionally CUDA-independent.
-            # CTranslate2's CUDA path needs external cuBLAS/cuDNN DLLs, which
-            # are not bundled with the portable release. Keep GPU preference
-            # for source/developer runs, but use CPU int8 in the EXE so STT
-            # works on a clean Windows machine.
+            # Try CUDA first on Windows EXE builds. CTranslate2 can use
+            # NVIDIA GPU execution when the compatible CUDA/cuDNN runtime is
+            # available on the machine. If the runtime is missing or the GPU
+            # cannot be initialized, fall back to CPU int8 automatically.
             frozen = bool(getattr(sys, "frozen", False))
-            device = "cpu" if frozen else "cuda"
-            compute_type = "int8" if frozen else self.config.compute_type
+            device = "cuda"
+            compute_type = "float16" if frozen else self.config.compute_type
+            self._emit(
+                running=False,
+                model_loading=True,
+                message=f"Загрузка STT: {self.config.model_name} на NVIDIA GPU…",
+            )
             self.model = WhisperModel(
                 self.config.model_name,
                 device=device,
@@ -189,7 +197,7 @@ class STTService:
             self._emit(
                 running=False,
                 model_loading=True,
-                message=f"GPU STT не запустился: {type(gpu_error).__name__}: {gpu_error}. Пробую CPU int8…",
+                message=f"CUDA STT недоступен: {type(gpu_error).__name__}: {gpu_error}. Пробую CPU int8…",
             )
             try:
                 self.model = WhisperModel(
@@ -197,6 +205,8 @@ class STTService:
                     device="cpu",
                     compute_type="int8",
                 )
+                self.runtime_device = "cpu"
+                self.runtime_compute_type = "int8"
             except Exception as cpu_error:
                 self.model = None
                 self.model_loading_started_at = None
