@@ -20,8 +20,8 @@ class STTConfig:
     language: str = "ru"
     input_device: int | None = None
     sample_rate: int = 16000
-    chunk_seconds: float = 1.0
-    overlap_seconds: float = 0.1
+    chunk_seconds: float = 2.5
+    overlap_seconds: float = 0.25
     beam_size: int = 1
     compute_type: str = "float16"
 
@@ -40,22 +40,13 @@ class STTService:
         self.on_status = on_status
         self.get_subtitle_tracks = get_subtitle_tracks or (lambda: [])
         self.translator = translator
-        chunk_setting = db.get_setting("stt_chunk_seconds")
-        overlap_setting = db.get_setting("stt_overlap_seconds")
-        # Migrate the previous built-in latency defaults once. These values were
-        # introduced by the earlier release and are not a user-specific profile.
-        if (chunk_setting, overlap_setting) in {("4.0", "0.5"), ("2.5", "0.25"), (None, None)}:
-            chunk_setting, overlap_setting = "1.0", "0.1"
-            db.set_setting("stt_chunk_seconds", chunk_setting)
-            db.set_setting("stt_overlap_seconds", overlap_setting)
-
         self.config = STTConfig(
             model_name=db.get_setting("stt_model", "large-v3-turbo"),
             language=db.get_setting("stt_language", "ru"),
             input_device=int(db.get_setting("stt_input_device")) if db.get_setting("stt_input_device") else None,
             sample_rate=int(db.get_setting("stt_sample_rate", "16000")),
-            chunk_seconds=float(chunk_setting or "1.0"),
-            overlap_seconds=float(overlap_setting or "0.1"),
+            chunk_seconds=float(db.get_setting("stt_chunk_seconds", "2.5")),
+            overlap_seconds=float(db.get_setting("stt_overlap_seconds", "0.25")),
             beam_size=int(db.get_setting("stt_beam_size", "1")),
             compute_type=db.get_setting("stt_compute_type", "float16"),
         )
@@ -392,27 +383,16 @@ class STTService:
             buf = np.zeros(0, dtype=np.float32)
             while not self.stop_event.is_set():
                 if self.audio_q:
-                    # Keep the callback queue bounded. When recognition briefly
-                    # falls behind, discard only very old callback blocks so the
-                    # subtitle stream does not accumulate an ever-growing lag.
-                    while len(self.audio_q) > 20:
-                        self.audio_q.popleft()
                     buf = np.concatenate([buf, self.audio_q.popleft()])
                 else:
-                    time.sleep(0.02)
+                    time.sleep(0.03)
                     continue
 
                 if len(buf) < chunk_samples:
                     continue
 
-                # Cap the rolling window. Under load we favor low live-caption
-                # latency over processing several seconds of stale audio.
-                max_buffer_samples = chunk_samples + overlap_samples * 3
-                if len(buf) > max_buffer_samples:
-                    buf = buf[-max_buffer_samples:]
-
                 source_audio = buf[:chunk_samples]
-                buf = buf[chunk_samples - overlap_samples:] if overlap_samples else np.zeros(0, dtype=np.float32)
+                buf = buf[chunk_samples - overlap_samples:]
 
                 if input_rate != target_rate:
                     audio = resample_poly(
@@ -431,7 +411,6 @@ class STTService:
                         vad_filter=True,
                         condition_on_previous_text=False,
                         temperature=0,
-                        without_timestamps=True,
                     )
                     texts = []
                     start = None
