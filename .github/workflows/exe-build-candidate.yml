@@ -125,6 +125,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: StreamVoiceBot-windows-candidate
-          path: dist_release/StreamVoiceBot_1.1.9
+          path: dist_release/StreamVoiceBot_*
           if-no-files-found: error
           retention-days: 7
