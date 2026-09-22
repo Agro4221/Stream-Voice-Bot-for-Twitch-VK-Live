@@ -20,8 +20,8 @@ class STTConfig:
     language: str = "ru"
     input_device: int | None = None
     sample_rate: int = 16000
-    chunk_seconds: float = 1.5
-    overlap_seconds: float = 0.15
+    chunk_seconds: float = 1.0
+    overlap_seconds: float = 0.1
     beam_size: int = 1
     compute_type: str = "float16"
 
@@ -44,8 +44,8 @@ class STTService:
         overlap_setting = db.get_setting("stt_overlap_seconds")
         # Migrate the previous built-in latency defaults once. These values were
         # introduced by the earlier release and are not a user-specific profile.
-        if chunk_setting == "2.5" and overlap_setting == "0.25":
-            chunk_setting, overlap_setting = "1.5", "0.15"
+        if (chunk_setting, overlap_setting) in {("4.0", "0.5"), ("2.5", "0.25"), (None, None)}:
+            chunk_setting, overlap_setting = "1.0", "0.1"
             db.set_setting("stt_chunk_seconds", chunk_setting)
             db.set_setting("stt_overlap_seconds", overlap_setting)
 
@@ -54,8 +54,8 @@ class STTService:
             language=db.get_setting("stt_language", "ru"),
             input_device=int(db.get_setting("stt_input_device")) if db.get_setting("stt_input_device") else None,
             sample_rate=int(db.get_setting("stt_sample_rate", "16000")),
-            chunk_seconds=float(chunk_setting or "1.5"),
-            overlap_seconds=float(overlap_setting or "0.15"),
+            chunk_seconds=float(chunk_setting or "1.0"),
+            overlap_seconds=float(overlap_setting or "0.1"),
             beam_size=int(db.get_setting("stt_beam_size", "1")),
             compute_type=db.get_setting("stt_compute_type", "float16"),
         )
@@ -392,15 +392,12 @@ class STTService:
             buf = np.zeros(0, dtype=np.float32)
             while not self.stop_event.is_set():
                 if self.audio_q:
-                    # If recognition falls behind realtime, discard stale callback
-                    # blocks and keep only the newest audio. Otherwise subtitles
-                    # drift further and further behind the stream.
-                    if len(self.audio_q) > 1:
-                        newest = self.audio_q[-1]
-                        self.audio_q.clear()
-                        buf = np.concatenate([buf, newest])
-                    else:
-                        buf = np.concatenate([buf, self.audio_q.popleft()])
+                    # Keep the callback queue bounded. When recognition briefly
+                    # falls behind, discard only very old callback blocks so the
+                    # subtitle stream does not accumulate an ever-growing lag.
+                    while len(self.audio_q) > 20:
+                        self.audio_q.popleft()
+                    buf = np.concatenate([buf, self.audio_q.popleft()])
                 else:
                     time.sleep(0.02)
                     continue
@@ -408,12 +405,14 @@ class STTService:
                 if len(buf) < chunk_samples:
                     continue
 
-                # Live-caption latency matters more than preserving every
-                # sample when the CPU transcription takes longer than realtime.
-                # Always transcribe the newest window and retain only the small
-                # overlap; stale audio must never accumulate into a visible lag.
-                source_audio = buf[-chunk_samples:]
-                buf = buf[-overlap_samples:] if overlap_samples else np.zeros(0, dtype=np.float32)
+                # Cap the rolling window. Under load we favor low live-caption
+                # latency over processing several seconds of stale audio.
+                max_buffer_samples = chunk_samples + overlap_samples * 3
+                if len(buf) > max_buffer_samples:
+                    buf = buf[-max_buffer_samples:]
+
+                source_audio = buf[:chunk_samples]
+                buf = buf[chunk_samples - overlap_samples:] if overlap_samples else np.zeros(0, dtype=np.float32)
 
                 if input_rate != target_rate:
                     audio = resample_poly(
@@ -432,6 +431,7 @@ class STTService:
                         vad_filter=True,
                         condition_on_previous_text=False,
                         temperature=0,
+                        without_timestamps=True,
                     )
                     texts = []
                     start = None
