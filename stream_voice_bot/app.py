@@ -164,6 +164,17 @@ def create_app(root: Path) -> FastAPI:
 
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
+
+    # Restore the historical stable subtitle window on existing installs that
+    # still have the experimental 2.0/2.5s + 0.25s settings.
+    if db.get_setting("stt_stable_window_migrated") != "1":
+        saved_chunk = db.get_setting("stt_chunk_seconds", "")
+        saved_overlap = db.get_setting("stt_overlap_seconds", "")
+        if saved_chunk in {"2", "2.0", "2.5", "2.50"} and saved_overlap in {"0.25", ".25"}:
+            db.set_setting("stt_chunk_seconds", "4.0")
+            db.set_setting("stt_overlap_seconds", "0.5")
+        db.set_setting("stt_stable_window_migrated", "1")
+
     db.prune_history(max_rows=50000)
 
     normal_speaker = db.get_setting("normal_speaker", "xenia")
