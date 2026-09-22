@@ -128,6 +128,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('mode not in {"auto", "cuda", "cpu"}', src)
         self.assertIn('device="cuda"', src)
         self.assertIn('device="cpu"', src)
+        self.assertIn('self.loaded_model_key = (str(self.config.model_name), mode)', src)
+        self.assertIn('self.model is not None and self.loaded_model_key != desired_key', src)
         self.assertIn("def _should_skip_segment", src)
         self.assertIn("_HALLUCINATION_CREDIT_RE", src)
         self.assertIn('"min_silence_duration_ms": 500', src)
