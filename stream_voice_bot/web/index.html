@@ -47,7 +47,7 @@ td.text{max-width:520px;word-break:break-word}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 .field{min-width:150px}.range-wrap{display:flex;align-items:center;gap:10px}.range-wrap input[type=range]{flex:1}.range-value{min-width:68px;text-align:right;font-variant-numeric:tabular-nums}.subtrack{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:8px;background:var(--panel2)}
-.notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.profile-box{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
+.notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.profile-box{min-width:0;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.profile-box select,.profile-box input[type=range]{max-width:100%}.range-wrap input[type=range]{min-width:0}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
 .oktext{color:var(--ok)} .badtext{color:var(--danger)}
 .runtime-logs{max-height:360px;overflow:auto;background:#0a0d12;border:1px solid var(--border);border-radius:10px;padding:8px;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:12px;line-height:1.45}
 .log-line{display:grid;grid-template-columns:82px 72px 170px 1fr;gap:8px;padding:4px 6px;border-bottom:1px solid #171c24}
@@ -239,8 +239,8 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </select></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="4"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".5"></div>
+    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
+    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
     <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
@@ -493,7 +493,8 @@ async function refresh(){
     }
     const st=document.getElementById('sttStatus');
     if(s.stt.model_loading){
-      st.textContent='STT: загрузка · '+(s.stt.model||'');
+      const loadingSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
+      st.textContent='STT: загрузка · '+(s.stt.model||'')+(loadingSeconds>=10?' · '+loadingSeconds+' с':'');
       st.className='pill';
     } else if(s.stt.running){
       st.textContent='STT: работает · '+(s.stt.model||'');
@@ -509,7 +510,11 @@ async function refresh(){
       [s.twitch.message||'', s.twitch.last_event ? 'Последнее событие: '+s.twitch.last_event : '']
       .filter(Boolean).join(' · ');
     if(!document.getElementById('sttInfo').matches(':focus')){
-      document.getElementById('sttInfo').textContent=s.stt.message||'';
+      const sttMessage=s.stt.message||'';
+    const sttSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
+    document.getElementById('sttInfo').textContent=(s.stt.model_loading && sttSeconds>=15 && sttMessage)
+      ? sttMessage+' Прошло '+sttSeconds+' с; первый запуск модели может занять несколько минут.'
+      : sttMessage;
     }
 
     const ttsFields={
@@ -551,8 +556,8 @@ async function refresh(){
     const sttFields={
       stt_model:s.stt.model||'large-v3-turbo',
       stt_language:s.stt.language||'ru',
-      stt_chunk:s.stt.chunk_seconds||4,
-      stt_overlap:s.stt.overlap_seconds??0.5,
+      stt_chunk:s.stt.chunk_seconds||2.5,
+      stt_overlap:s.stt.overlap_seconds??0.25,
       stt_compute:s.stt.compute_type||'float16'
     };
     Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
