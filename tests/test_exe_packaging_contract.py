@@ -49,6 +49,8 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn("cuBLAS", src)
         self.assertIn("cuDNN 9", src)
         self.assertNotIn("cuDNN 8 на системе", src)
+        self.assertIn('grid-template-columns:minmax(0,1fr) minmax(0,1fr)', src)
+        self.assertIn('profile-box{min-width:0', src)
 
     def test_legacy_portable_script_has_no_deleted_launcher(self):
         src = self.read("scripts/make_portable_release.ps1")
