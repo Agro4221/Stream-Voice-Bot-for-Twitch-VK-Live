@@ -41,6 +41,19 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertNotIn("collect_all", src)
         self.assertNotIn("StreamVoiceBotCore", src)
 
+    def test_stt_ui_exposes_auto_gpu_and_cpu_modes(self):
+        src = self.read("stream_voice_bot/web/index.html")
+        self.assertIn('value="auto">Авто (CUDA → CPU)', src)
+        self.assertIn('value="cuda">GPU (NVIDIA CUDA)', src)
+        self.assertIn('value="cpu">CPU int8', src)
+        self.assertIn("cuBLAS", src)
+        self.assertIn("cuDNN 9", src)
+        self.assertNotIn("cuDNN 8 на системе", src)
+
+    def test_legacy_portable_script_has_no_deleted_launcher(self):
+        src = self.read("scripts/make_portable_release.ps1")
+        self.assertNotIn('"run_windows.ps1"', src)
+
     def test_build_script_isolated_from_legacy_output(self):
         src = self.read("scripts/build_exe.ps1")
         self.assertIn('"StreamVoiceBot"', src)
