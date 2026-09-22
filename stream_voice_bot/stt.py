@@ -92,6 +92,7 @@ class STTService:
         self.model = None
         self.runtime_device: str | None = None
         self.runtime_compute_type: str | None = None
+        self.loaded_model_key: tuple[str, str] | None = None
         self.thread: threading.Thread | None = None
         self.start_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
@@ -171,13 +172,20 @@ class STTService:
 
     def _load_model(self):
         self.model_loading_started_at = self.model_loading_started_at or time.monotonic()
-        if self.model is not None:
+        requested_mode = str(self.config.device_mode or "auto").strip().lower()
+        if requested_mode not in {"auto", "cuda", "cpu"}:
+            requested_mode = "auto"
+            self.config.device_mode = requested_mode
+        desired_key = (str(self.config.model_name), requested_mode)
+        if self.model is not None and self.loaded_model_key == desired_key:
             return
+        if self.model is not None and self.loaded_model_key != desired_key:
+            self.model = None
+            self.runtime_device = None
+            self.runtime_compute_type = None
+            self.loaded_model_key = None
 
-        mode = str(self.config.device_mode or "auto").strip().lower()
-        if mode not in {"auto", "cuda", "cpu"}:
-            mode = "auto"
-            self.config.device_mode = mode
+        mode = requested_mode
 
         self._emit(
             running=False,
@@ -213,6 +221,7 @@ class STTService:
             )
             self.runtime_device = "cuda"
             self.runtime_compute_type = "float16"
+            self.loaded_model_key = (str(self.config.model_name), mode)
 
         try:
             if mode == "cpu":
@@ -247,6 +256,7 @@ class STTService:
             self.model = None
             self.runtime_device = None
             self.runtime_compute_type = None
+            self.loaded_model_key = None
             self.model_loading_started_at = None
             self._emit(
                 running=False,
