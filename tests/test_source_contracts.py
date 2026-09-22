@@ -103,6 +103,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         src = self.read("stream_voice_bot/stt.py")
         self.assertIn("deque(maxlen=200)", src)
         self.assertIn("def _candidate_input_rates", src)
+        self.assertNotIn("first_device_failed", src)
         self.assertIn("def _open_input_stream", src)
         self.assertIn("stream = sd.InputStream(", src)
         self.assertIn("stream.start()", src)
