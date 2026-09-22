@@ -21,6 +21,10 @@ def runtime_root() -> Path:
 
 
 ROOT = runtime_root()
+# PyInstaller 6.22+ stores onedir runtime files under `_internal` and
+# exposes that directory through sys._MEIPASS. Keep writable user data
+# beside the EXE so the visible bundle stays clean and portable.
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", ROOT)) if getattr(sys, "frozen", False) else ROOT
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 BOOT_LOG = DATA_DIR / "exe_startup.log"
@@ -113,8 +117,8 @@ $shortcut.Save()
         boot_log(f"Desktop shortcut creation skipped: {type(exc).__name__}: {exc}")
 
 
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if str(RESOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(RESOURCE_ROOT))
 
 try:
     import uvicorn
@@ -150,8 +154,9 @@ def wait_for_admin_and_open() -> None:
 
 
 try:
-    boot_log(f"Starting application from root: {ROOT}")
-    app = create_app(ROOT)
+    boot_log(f"Starting application from resource root: {RESOURCE_ROOT}")
+    boot_log(f"Writable data root: {ROOT}")
+    app = create_app(RESOURCE_ROOT, data_root=ROOT)
     boot_log("create_app completed successfully.")
     create_desktop_shortcut_once()
 except Exception:
