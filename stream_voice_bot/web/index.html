@@ -241,7 +241,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
     <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
     <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
-    <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">CUDA (NVIDIA)</option><option value="cpu">CPU int8</option></select></div>
+    <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">GPU (NVIDIA CUDA)</option><option value="cpu">CPU int8</option></select></div>
     <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
@@ -249,7 +249,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, CUDA (NVIDIA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA и при недоступности автоматически переходит на CPU. Для CUDA нужен совместимый NVIDIA-драйвер и CUDA 12.x + cuDNN 8 на системе.</div>
+  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA и при недоступности автоматически переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер, CUDA 12.x, cuBLAS и cuDNN 9 на системе.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
 </section>
 
