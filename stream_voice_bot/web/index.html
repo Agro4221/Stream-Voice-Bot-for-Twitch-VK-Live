@@ -180,7 +180,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <section class="card wide">
   <h2>Twitch</h2>
   <div class="row">
-    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="text" style="width:100%" autocomplete="off" placeholder="Вставь Client ID один раз"></div>
+    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="password" style="width:100%" autocomplete="off" placeholder="Вставь Client ID один раз"></div>
   </div>
   <div class="actions" style="margin-top:10px">
     <button onclick="saveTwitch()">Сохранить Client ID</button>
@@ -239,8 +239,8 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </select></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
+    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="1.5"></div>
+    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".05" value=".15"></div>
     <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
@@ -551,8 +551,8 @@ async function refresh(){
     const sttFields={
       stt_model:s.stt.model||'large-v3-turbo',
       stt_language:s.stt.language||'ru',
-      stt_chunk:s.stt.chunk_seconds||4,
-      stt_overlap:s.stt.overlap_seconds??0.5,
+      stt_chunk:s.stt.chunk_seconds||1.5,
+      stt_overlap:s.stt.overlap_seconds??0.15,
       stt_compute:s.stt.compute_type||'float16'
     };
     Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
@@ -829,7 +829,13 @@ function bindEditableState(id){
 }
 function clearEditableState(id){
   const el=document.getElementById(id);
-  if(el){ delete el.dataset.userEdited; el.classList.remove('dirty'); }
+  if(el){
+    delete el.dataset.userEdited;
+    el.classList.remove('dirty');
+    // The just-saved DOM value is now the server value. Otherwise refresh()
+    // sees the old dataset.serverValue and immediately marks the field dirty again.
+    el.dataset.serverValue=String(el.value);
+  }
 }
 
 [
