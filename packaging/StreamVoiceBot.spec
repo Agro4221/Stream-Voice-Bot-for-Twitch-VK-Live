@@ -80,9 +80,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# PyInstaller 6.x normally places onedir support files in _internal.
-# Our application code deliberately resolves resources relative to the
-# directory containing the EXE, so restore the old onedir layout here.
+# Keep the user-facing folder tidy: PyInstaller onedir runtime support files
+# live under _internal, while the EXE itself remains at the top level.
 exe = EXE(
     pyz,
     a.scripts,
@@ -95,7 +94,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=True,
-    contents_directory=".",
+    contents_directory="_internal",
 )
 
 coll = COLLECT(
