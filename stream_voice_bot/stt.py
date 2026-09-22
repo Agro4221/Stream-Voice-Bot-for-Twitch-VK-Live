@@ -266,7 +266,6 @@ class STTService:
             device_candidates.append(None)
 
         errors = []
-        first_device_failed = False
 
         for device_override in device_candidates:
             requested, rates, max_input_channels, hostapi_name, actual_device = self._candidate_input_rates(device_override)
@@ -341,13 +340,6 @@ class STTService:
         raise RuntimeError(
             "Не удалось открыть микрофон. "
             f"Запрошено {requested} Hz; выбранный input={requested_device!r}. "
-            + " | ".join(errors)
-        )
-
-        raise RuntimeError(
-            "Не удалось открыть микрофон. "
-            f"Запрошено {requested} Hz; устройство сообщает {max_input_channels} входных каналов "
-            f"через {hostapi_name or 'PortAudio'}. "
             + " | ".join(errors)
         )
 
