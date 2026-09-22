@@ -457,16 +457,10 @@ class STTService:
                                             "timestamp": ts,
                                         })
                                 except Exception as e:
-                                        self._emit(
-                                            running=True,
-                                            message=f"Перевод {source_language} → {target}: {type(e).__name__}: {e}",
-                                        )
-
-                                threading.Thread(
-                                    target=translate_one,
-                                    name=f"stt-translate-{target_language}",
-                                    daemon=True,
-                                ).start()
+                                    self._emit(
+                                        running=True,
+                                        message=f"Перевод {detected_language} → {target_language}: {type(e).__name__}: {e}",
+                                    )
                 except Exception as e:
                     self._emit(
                         running=True,
