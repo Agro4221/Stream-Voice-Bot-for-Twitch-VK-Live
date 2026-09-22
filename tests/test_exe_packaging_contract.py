@@ -24,7 +24,8 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('"models" / "v5_ru.pt"', src)
         self.assertIn('"stream_voice_bot" / "web"', src)
         self.assertIn('"stream_voice_bot" / "vk_bridge"', src)
-        self.assertIn('".runtime" / "node"', src)
+        self.assertIn('".runtime" / "node" / "node.exe"', src)
+        self.assertNotIn('content-factory-favicon.png",\n        "packaging"', src)
         self.assertIn('[str(PROJECT_ROOT / "scripts" / "exe_entry.py")]', src)
         self.assertIn("exclude_binaries=True", src)
         self.assertIn('contents_directory="."', src)
@@ -43,6 +44,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn("https://download.pytorch.org/whl/cpu", src)
         self.assertIn("The existing dist/ folder will not be touched.", src)
         self.assertIn("Copy-Item $BuiltBundle $FinalStage -Recurse -Force", src)
+        self.assertIn("Create_Desktop_Shortcut.cmd", src)
         self.assertNotIn("StreamVoiceBotCore.exe", src)
 
     def test_release_build_output_is_ignored(self):
