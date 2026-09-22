@@ -378,13 +378,15 @@ SmartScreen:
 - Twitch access/refresh tokens не входят в пакет; авторизация выполняется отдельно на каждом ПК.
 "@ | Set-Content -LiteralPath $Readme -Encoding UTF8
 
+$InternalRoot = Join-Path $FinalStage "_internal"
+
 $RequiredFiles = @(
     (Join-Path $FinalStage "StreamVoiceBot.exe"),
-    (Join-Path $FinalStage "models\v5_ru.pt"),
-    (Join-Path $FinalStage "stream_voice_bot\web\index.html"),
-    (Join-Path $FinalStage "stream_voice_bot\vk_bridge\bridge.js"),
-    (Join-Path $FinalStage ".runtime\node\node.exe"),
-    (Join-Path $FinalStage "VERSION")
+    (Join-Path $InternalRoot "models\v5_ru.pt"),
+    (Join-Path $InternalRoot "stream_voice_bot\web\index.html"),
+    (Join-Path $InternalRoot "stream_voice_bot\vk_bridge\bridge.js"),
+    (Join-Path $InternalRoot ".runtime\node\node.exe"),
+    (Join-Path $InternalRoot "VERSION")
 )
 
 foreach ($required in $RequiredFiles) {
@@ -406,6 +408,7 @@ Write-Host "BUILD SUCCESS" -ForegroundColor Green
 Write-Host "Clean EXE bundle: $FinalStage"
 Write-Host "Launcher:         $FinalStage\StreamVoiceBot.exe"
 Write-Host "Desktop shortcut: created automatically on first EXE launch."
+Write-Host "User-facing layout: EXE + _internal + data + README."
 Write-Host ""
 Write-Host "Existing dist/ and build/ folders were not modified."
 Write-Host "For distribution, archive the whole versioned folder."
