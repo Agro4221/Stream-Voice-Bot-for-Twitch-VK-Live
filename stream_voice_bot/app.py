@@ -154,12 +154,18 @@ def _read_app_version(root: Path) -> str:
         return "0.0.0-dev"
 
 
-def create_app(root: Path) -> FastAPI:
+def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
+    """Build the app from bundled resources while keeping writable data external.
+
+    In a PyInstaller onedir bundle, bundled resources live under `_internal`,
+    while user data should remain beside the EXE so it survives updates.
+    Source/developer runs keep the historical single-root behavior.
+    """
     app_version = _read_app_version(root)
     app = FastAPI(title="Stream Voice Bot", version=app_version)
     install_log_buffer()
     log.info("Admin backend initialized (version=%s)", app_version)
-    data_dir = root / "data"
+    data_dir = (data_root or root) / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
 
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
