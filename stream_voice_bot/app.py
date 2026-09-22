@@ -92,6 +92,7 @@ class STTConfigRequest(BaseModel):
     overlap_seconds: float | None = Field(default=None, ge=0, le=3)
     beam_size: int | None = Field(default=None, ge=1, le=10)
     compute_type: str | None = None
+    device_mode: str | None = None
 
 
 def _is_usable_model(path: Path) -> bool:
