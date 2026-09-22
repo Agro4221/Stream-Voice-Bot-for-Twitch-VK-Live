@@ -45,7 +45,9 @@ jobs:
       - name: Smoke-test packaged EXE
         shell: pwsh
         run: |
-          $exe = Resolve-Path ".\dist_release\StreamVoiceBot_1.1.9\StreamVoiceBot.exe"
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $releaseRoot = ".\dist_release\StreamVoiceBot_$version"
+          $exe = Resolve-Path (Join-Path $releaseRoot "StreamVoiceBot.exe")
           $process = Start-Process -FilePath $exe -PassThru
           try {
             $ready = $false
@@ -63,7 +65,7 @@ jobs:
               } catch {}
             }
             if (-not $ready) {
-              $log = ".\dist_release\StreamVoiceBot_1.1.9\data\exe_startup.log"
+              $log = Join-Path $releaseRoot "data\exe_startup.log"
               if (Test-Path $log) {
                 Write-Host "=== exe_startup.log ==="
                 Get-Content $log -ErrorAction SilentlyContinue
@@ -113,7 +115,8 @@ jobs:
       - name: Inspect bundle size
         shell: pwsh
         run: |
-          $root = Resolve-Path ".\dist_release\StreamVoiceBot_1.1.9"
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $root = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
           $total = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum
           Write-Host ("Bundle size: {0:N2} GB" -f ($total / 1GB))
           Get-ChildItem $root -Recurse -File | Sort-Object Length -Descending | Select-Object -First 20 @{Name="GB";Expression={[math]::Round($_.Length/1GB,2)}}, @{Name="Path";Expression={$_.FullName}} | Format-Table -AutoSize
@@ -121,7 +124,7 @@ jobs:
       - name: Upload EXE candidate
         uses: actions/upload-artifact@v4
         with:
-          name: StreamVoiceBot_1.1.9-windows-candidate
+          name: StreamVoiceBot-windows-candidate
           path: dist_release/StreamVoiceBot_1.1.9
           if-no-files-found: error
           retention-days: 7
