@@ -392,9 +392,17 @@ class STTService:
             buf = np.zeros(0, dtype=np.float32)
             while not self.stop_event.is_set():
                 if self.audio_q:
-                    buf = np.concatenate([buf, self.audio_q.popleft()])
+                    # If recognition falls behind realtime, discard stale callback
+                    # blocks and keep only the newest audio. Otherwise subtitles
+                    # drift further and further behind the stream.
+                    if len(self.audio_q) > 1:
+                        newest = self.audio_q[-1]
+                        self.audio_q.clear()
+                        buf = np.concatenate([buf, newest])
+                    else:
+                        buf = np.concatenate([buf, self.audio_q.popleft()])
                 else:
-                    time.sleep(0.03)
+                    time.sleep(0.02)
                     continue
 
                 if len(buf) < chunk_samples:
