@@ -345,6 +345,11 @@ Write-Host "Preparing isolated versioned release folder..." -ForegroundColor Cya
 Copy-Item $BuiltBundle $FinalStage -Recurse -Force
 Copy-Item (Join-Path $ProjectRoot "scripts\Create_Desktop_Shortcut.cmd") $FinalStage -Force
 
+$ShortcutScript = Join-Path $ProjectRoot "scripts\Create_Desktop_Shortcut.cmd"
+if (Test-Path $ShortcutScript -PathType Leaf) {
+    Copy-Item $ShortcutScript (Join-Path $FinalStage "Create_Desktop_Shortcut.cmd") -Force
+}
+
 $Readme = Join-Path $FinalStage "README_EXE.txt"
 @"
 Stream Voice Bot v$Version
