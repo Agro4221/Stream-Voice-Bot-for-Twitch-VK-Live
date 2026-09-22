@@ -20,31 +20,24 @@ opacity:0;transition:opacity .15s}
 const parts = location.pathname.split("/").filter(Boolean);
 const trackId = (parts.length > 1 ? parts[parts.length - 1] : "ru").toLowerCase();
 let lastTs=0;
-let stream=null;
-const el=document.getElementById('sub');
-
-function showSubtitle(item){
-  const text=String(item?.text||'');
-  const ts=Number(item?.timestamp||0);
-  if(!text || !ts || ts===lastTs) return;
-  lastTs=ts;
-  el.textContent=text;
-  el.classList.add('show');
-  setTimeout(()=>{ if(lastTs===ts) el.classList.remove('show'); },6500);
+async function update(){
+  try{
+    const r=await fetch('/api/state',{cache:'no-store'});
+    const s=await r.json();
+    const item=s.subtitle?.[trackId] || (trackId==='ru' ? s.subtitle?.ru : null) || {};
+    const text=item.text||'';
+    const ts=Number(item.timestamp||0);
+    const el=document.getElementById('sub');
+    if(text && ts!==lastTs){
+      lastTs=ts;
+      el.textContent=text;
+      el.classList.add('show');
+      setTimeout(()=>{ if(lastTs===ts) el.classList.remove('show'); }, 6500);
+    }
+  }catch(e){}
 }
-
-function connect(){
-  if(stream){ try{stream.close();}catch(e){} }
-  stream=new EventSource('/api/subtitles/stream/'+encodeURIComponent(trackId));
-  stream.onmessage=(event)=>{
-    try{ showSubtitle(JSON.parse(event.data)); }catch(e){}
-  };
-  stream.onerror=()=>{
-    // EventSource reconnects automatically. Do not fall back to a heavy
-    // /api/state polling loop, because this page is an OBS live source.
-  };
-}
-connect();
+setInterval(update,250);
+update();
 </script>
 </body>
 </html>
