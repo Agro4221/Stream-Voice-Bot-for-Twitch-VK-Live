@@ -532,18 +532,8 @@ def create_app(root: Path) -> FastAPI:
     async def index():
         return html_no_cache(root / "stream_voice_bot" / "web" / "index.html")
 
-    def ensure_stt_for_subtitles():
-        # Opening an OBS Browser Source is the user's explicit request to use
-        # subtitles. Start STT lazily here so a fresh portable install does not
-        # require a separate manual "Запустить STT" click.
-        try:
-            stt.start()
-        except Exception as e:
-            log.exception("Subtitle STT auto-start failed: %s", e)
-
     @app.get("/subtitles")
     async def subtitles():
-        ensure_stt_for_subtitles()
         return html_no_cache(root / "stream_voice_bot" / "web" / "subtitles.html")
 
     @app.get("/subtitles/{track_id}")
@@ -551,7 +541,6 @@ def create_app(root: Path) -> FastAPI:
         track_id = track_id.strip().lower()
         if not track_id or not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
             raise HTTPException(400, "Invalid subtitle track id")
-        ensure_stt_for_subtitles()
         return html_no_cache(root / "stream_voice_bot" / "web" / "subtitles.html")
 
     @app.get("/api/state")
