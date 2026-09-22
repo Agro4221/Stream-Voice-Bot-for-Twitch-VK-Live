@@ -1110,6 +1110,8 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     async def stt_config(req: STTConfigRequest):
         current_chunk = stt.config.chunk_seconds
         current_overlap = stt.config.overlap_seconds
+        if req.device_mode is not None and req.device_mode not in {"auto", "cuda", "cpu"}:
+            raise HTTPException(400, "Unknown STT device mode")
         chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
         overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
         if overlap >= chunk:
