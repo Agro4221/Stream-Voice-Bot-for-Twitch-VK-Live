@@ -45,8 +45,8 @@ class STTService:
             language=db.get_setting("stt_language", "ru"),
             input_device=int(db.get_setting("stt_input_device")) if db.get_setting("stt_input_device") else None,
             sample_rate=int(db.get_setting("stt_sample_rate", "16000")),
-            chunk_seconds=float(db.get_setting("stt_chunk_seconds", "4.0")),
-            overlap_seconds=float(db.get_setting("stt_overlap_seconds", "0.5")),
+            chunk_seconds=float(db.get_setting("stt_chunk_seconds", "2.5")),
+            overlap_seconds=float(db.get_setting("stt_overlap_seconds", "0.25")),
             beam_size=int(db.get_setting("stt_beam_size", "1")),
             compute_type=db.get_setting("stt_compute_type", "float16"),
         )
