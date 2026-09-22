@@ -20,8 +20,8 @@ class STTConfig:
     language: str = "ru"
     input_device: int | None = None
     sample_rate: int = 16000
-    chunk_seconds: float = 4.0
-    overlap_seconds: float = 0.5
+    chunk_seconds: float = 2.5
+    overlap_seconds: float = 0.25
     beam_size: int = 1
     compute_type: str = "float16"
 
@@ -375,7 +375,13 @@ class STTService:
             buf = np.zeros(0, dtype=np.float32)
             while not self.stop_event.is_set():
                 if self.audio_q:
-                    buf = np.concatenate([buf, self.audio_q.popleft()])
+                    # Live captions must follow the newest audio, not replay
+                    # a backlog that accumulated while Whisper was working.
+                    queued = []
+                    while self.audio_q:
+                        queued.append(self.audio_q.popleft())
+                    if queued:
+                        buf = np.concatenate([buf, *queued])
                 else:
                     time.sleep(0.03)
                     continue
@@ -383,8 +389,11 @@ class STTService:
                 if len(buf) < chunk_samples:
                     continue
 
-                source_audio = buf[:chunk_samples]
-                buf = buf[chunk_samples - overlap_samples:]
+                # Transcribe the newest complete window and retain only a small
+                # overlap for continuity. This bounds live-caption latency even
+                # when CPU inference takes longer than realtime.
+                source_audio = buf[-chunk_samples:]
+                buf = buf[-overlap_samples:] if overlap_samples else np.zeros(0, dtype=np.float32)
 
                 if input_rate != target_rate:
                     audio = resample_poly(
@@ -437,22 +446,39 @@ class STTService:
                                 target_language = str(track.get("language", "")).strip().lower().split("-")[0]
                                 if not target_language or target_language == detected_language.lower().split("-")[0]:
                                     continue
-                                try:
-                                    translated = self.translator.translate(text, detected_language, target_language)
-                                    if translated:
-                                        self.on_subtitle({
-                                            "track_id": track.get("id", target_language),
-                                            "text": translated,
-                                            "start": start,
-                                            "end": end,
-                                            "language": target_language,
-                                            "timestamp": ts,
-                                        })
-                                except Exception as e:
-                                    self._emit(
-                                        running=True,
-                                        message=f"Перевод {detected_language} → {target_language}: {type(e).__name__}: {e}",
-                                    )
+                                def translate_one(
+                                    track_id=track.get("id", target_language),
+                                    target=target_language,
+                                    source_text=text,
+                                    source_language=detected_language,
+                                    segment_start=start,
+                                    segment_end=end,
+                                    timestamp=ts,
+                                ):
+                                    try:
+                                        translated = self.translator.translate(
+                                            source_text, source_language, target
+                                        )
+                                        if translated:
+                                            self.on_subtitle({
+                                                "track_id": track_id,
+                                                "text": translated,
+                                                "start": segment_start,
+                                                "end": segment_end,
+                                                "language": target,
+                                                "timestamp": timestamp,
+                                            })
+                                    except Exception as e:
+                                        self._emit(
+                                            running=True,
+                                            message=f"Перевод {source_language} → {target}: {type(e).__name__}: {e}",
+                                        )
+
+                                threading.Thread(
+                                    target=translate_one,
+                                    name=f"stt-translate-{target_language}",
+                                    daemon=True,
+                                ).start()
                 except Exception as e:
                     self._emit(
                         running=True,
