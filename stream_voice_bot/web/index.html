@@ -239,8 +239,8 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </select></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".25" value="1.0"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".05" value=".1"></div>
+    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
+    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
     <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
@@ -551,8 +551,8 @@ async function refresh(){
     const sttFields={
       stt_model:s.stt.model||'large-v3-turbo',
       stt_language:s.stt.language||'ru',
-      stt_chunk:s.stt.chunk_seconds||1.0,
-      stt_overlap:s.stt.overlap_seconds??0.1,
+      stt_chunk:s.stt.chunk_seconds||2.5,
+      stt_overlap:s.stt.overlap_seconds??0.25,
       stt_compute:s.stt.compute_type||'float16'
     };
     Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
