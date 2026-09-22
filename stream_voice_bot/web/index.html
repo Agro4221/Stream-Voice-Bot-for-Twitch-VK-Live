@@ -61,7 +61,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div><h1>Stream Voice Bot</h1><div class="small">TTS queue / Silero V5 / локальный аудиовывод / 2 профиля голоса</div></div>
   <div class="row">
     <div id="status" class="pill">Подключение...</div>
-    <button id="shutdownButton" class="danger" type="button" onclick="shutdownBot()">Выключить бота</button>
+    <button id="shutdownButton" class="danger" type="button" onclick="shutdownBot()">Выключить</button>
   </div>
 </header>
 
@@ -298,18 +298,24 @@ function showShutdownPopup(){
 async function shutdownBot(){
   const button=document.getElementById('shutdownButton');
   const status=document.getElementById('status');
+  if(shutdownRequested) return;
   if(!confirm('Выключить Stream Voice Bot?')) return;
+
+  // Freeze the status UI before making the request. A refresh request that was
+  // already in flight must not be allowed to paint "Работает" again.
+  shutdownRequested=true;
   if(button) button.disabled=true;
   if(status){ status.textContent='Выключение…'; status.className='pill'; }
+  if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
+  if(logTimer){ clearInterval(logTimer); logTimer=null; }
 
   try{
     await api('/api/shutdown',{method:'POST',keepalive:true});
-    if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
-    if(logTimer){ clearInterval(logTimer); logTimer=null; }
     if(status){ status.textContent='Выключен'; status.className='pill'; }
     document.title='Stream Voice Bot — выключен';
     showShutdownPopup();
   }catch(e){
+    shutdownRequested=false;
     if(button) button.disabled=false;
     if(status){ status.textContent='Ошибка'; status.className='pill badtext'; }
     console.error('shutdown failed',e);
@@ -344,6 +350,7 @@ function formatHistoryTime(value){
 let refreshBusy=false;
 let refreshTimer=null;
 let logTimer=null;
+let shutdownRequested=false;
 
 function isUserEditing(el, serverValue){
   if(!el) return true;
@@ -428,7 +435,7 @@ async function prepareSubtitleTranslations(){
   }catch(e){document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message;}
 }
 async function refresh(){
-  if(refreshBusy) return;
+  if(shutdownRequested || refreshBusy) return;
   refreshBusy=true;
   try{
     const [s,h,dev]=await Promise.all([api('/api/state'),api('/api/history?limit=120'),api('/api/audio/devices')]);
