@@ -223,6 +223,16 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("await api('/api/stt/start'", web)
 
 
+    def test_subtitle_browser_diagnostics_are_wired(self):
+        web = self.read("stream_voice_bot/web/index.html")
+        app = self.read("stream_voice_bot/app.py")
+        subtitles = self.read("stream_voice_bot/web/subtitles.html")
+        self.assertIn("data-id=", web)
+        self.assertIn("testSubtitleTrack(this.closest('.subtrack').dataset.id)", web)
+        self.assertIn('@app.get("/api/subtitles/debug/{track_id}")', app)
+        self.assertIn("URLSearchParams(location.search).get('debug')==='1'", subtitles)
+
+
 
 if __name__ == "__main__":
     unittest.main()
