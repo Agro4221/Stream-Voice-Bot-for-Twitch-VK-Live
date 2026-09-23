@@ -195,6 +195,14 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"speech_pad_ms": 150', src)
 
 
+    def test_stt_model_reuses_actual_backend_after_stop(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("loaded_model, loaded_backend = self.loaded_model_key", stt)
+        self.assertIn('requested_mode == "auto"', stt)
+        self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cpu")', stt)
+        self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cuda")', stt)
+
+
 
 if __name__ == "__main__":
     unittest.main()
