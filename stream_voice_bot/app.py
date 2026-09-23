@@ -1180,8 +1180,34 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     @app.post("/api/stt/start")
     async def stt_start():
         try:
+            # A running worker may still belong to a previous CPU/GPU
+            # configuration (or may be alive after an inference error). In that
+            # case, restart it instead of returning "already works".
+            active = bool(stt.thread and stt.thread.is_alive())
+            runtime_device = stt.runtime_device
+            configured_device = stt.config.device_mode
+            needs_restart = active and (
+                bool(stt.last_error)
+                or (
+                    configured_device in {"cpu", "cuda"}
+                    and runtime_device not in {None, configured_device}
+                )
+            )
+            if needs_restart:
+                stt.stop()
+                deadline = time.monotonic() + 15.0
+                while time.monotonic() < deadline:
+                    if not (stt.thread and stt.thread.is_alive()) and not (
+                        stt.start_thread and stt.start_thread.is_alive()
+                    ):
+                        break
+                    await asyncio.sleep(0.2)
+                if stt.thread and stt.thread.is_alive():
+                    raise HTTPException(409, "Предыдущий STT ещё не остановился")
             stt.start()
-            return {"ok": True, "state": stt.state()}
+            return {"ok": True, "state": stt.state(), "restarted": needs_restart}
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(500, str(e))
 
