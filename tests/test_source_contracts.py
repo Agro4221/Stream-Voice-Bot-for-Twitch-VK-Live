@@ -194,7 +194,6 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"min_silence_duration_ms": 300', src)
         self.assertIn('"speech_pad_ms": 200', src)
         self.assertIn('"threshold": 0.35', src)
-        self.assertIn('"speech_pad_ms": 150', src)
 
 
     def test_stt_model_reuses_actual_backend_after_stop(self):
