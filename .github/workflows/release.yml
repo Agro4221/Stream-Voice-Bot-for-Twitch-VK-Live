@@ -154,6 +154,50 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+# 🎙️ Stream Voice Bot v1.1.11
+
+Локальный Windows-ассистент для стримов: Twitch + VK Видео Live, Silero TTS, OBS/VB-CABLE и опциональные STT-субтитры.
+
+## Что входит
+
+- 🔊 **Silero V5 TTS** — локальная озвучка с профилями «Обычная» / «Громкая»
+- 🟣 **Twitch EventSub / Channel Points**
+- 🔵 **VK Видео Live** — readonly chat bridge
+- 🎧 **VB-CABLE → OBS**, 48 kHz stereo
+- 🎤 **faster-whisper STT** — опционально
+- ⚙️ **STT: Авто (CUDA → CPU), GPU (NVIDIA CUDA), CPU int8**
+- 📝 **Несколько OBS subtitle tracks** с отдельными URL
+- 🌍 **Локальный перевод через Argos Translate**
+- 🔐 Секреты Twitch/VK в Windows Credential Manager
+- 📦 Компактная Windows portable EXE-сборка с `_internal` и внешней `data`
+- 🖥️ Автоматическое создание ярлыка `Stream Voice Bot` при первом запуске EXE
+- 🧪 Windows smoke-test и регрессионные проверки перед публикацией
+
+## Windows
+
+Скачай `StreamVoiceBot_1.1.11_Windows_x64.zip`, распакуй всю папку целиком и запусти `StreamVoiceBot.exe`.
+
+Для TTS нужен установленный **VB-CABLE**. Он не входит в пакет и устанавливается отдельно как системный аудиодрайвер.
+
+STT можно оставить отключённым или выбрать `CPU int8`. GPU-режим использует NVIDIA CUDA 12 runtime и cuDNN 9; необходимые GPU-библиотеки подготавливаются приложением отдельно от основного EXE-пакета.
+
+## OBS субтитры
+
+После запуска используй URL вида:
+
+`http://127.0.0.1:8787/subtitles/ru`
+
+или другой ID дорожки, созданной в админке.
+
+## Контрольная сумма
+
+Рядом с ZIP опубликован файл `.sha256`.
+EOF
+
       - name: Publish release
         if: steps.existing.outputs.exists != 'true'
         env:
@@ -163,7 +207,7 @@ jobs:
           gh release create "v${{ steps.version.outputs.version }}" \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
-            --title "Stream Voice Bot v${{ steps.version.outputs.version }}" \
-            --generate-notes \
+            --title "🎙️ Stream Voice Bot v${{ steps.version.outputs.version }}" \
+            --notes-file release-notes.md \
             --latest \
             release-assets/*
