@@ -1103,6 +1103,18 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, clean))
         return {"ok": True, "tracks": subtitle_tracks}
 
+    @app.post("/api/subtitles/test")
+    async def subtitles_test():
+        test_text = "Тест субтитров ✓"
+        ts = time.time()
+        on_subtitle({
+            "source": True,
+            "text": test_text,
+            "language": "ru",
+            "timestamp": ts,
+        })
+        return {"ok": True, "text": test_text, "timestamp": ts}
+
     @app.post("/api/subtitles/prepare")
     async def subtitles_prepare():
         source_language = db.get_setting("stt_language", "ru") or "ru"
