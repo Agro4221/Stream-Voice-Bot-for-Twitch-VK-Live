@@ -27,7 +27,7 @@ async function update(){
     const s=await r.json();
     const item=s.subtitle?.[trackId] || {};
     const rawText=String(item.text||'');
-    const blocked=/(?:subtitles?\\s+(?:made|created|provided)\\s+by\\b|\\bdima\\s*torzok\\b)/i.test(rawText);
+    const blocked=/(?:subtitles?\s+(?:made|created|provided)\s+by\b|\bdima\s*torzok\b)/i.test(rawText);
     const text=blocked ? '' : rawText;
     const debug=document.getElementById('debug');
     if(new URLSearchParams(location.search).get('debug')==='1'){
