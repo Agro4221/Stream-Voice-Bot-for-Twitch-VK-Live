@@ -151,7 +151,17 @@ jobs:
           $root = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
           $total = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum
           Write-Host ("Bundle size: {0:N2} GB" -f ($total / 1GB))
-          Get-ChildItem $root -Recurse -File | Sort-Object Length -Descending | Select-Object -First 20 @{Name="GB";Expression={[math]::Round($_.Length/1GB,2)}}, @{Name="Path";Expression={$_.FullName}} | Format-Table -AutoSize
+          Write-Host "File count: $($files.Count)"
+          Write-Host "Files by extension:"
+          $files = Get-ChildItem $root -Recurse -Force -File
+          $files | Group-Object Extension | Sort-Object Count -Descending | Select-Object -First 20 Count,Name | Format-Table -AutoSize
+          Write-Host "Files by top-level bundle directory:"
+          $files | ForEach-Object {
+            $rel = $_.FullName.Substring($root.Path.Length).TrimStart("\")
+            $top = ($rel -split "\\")[0]
+            [pscustomobject]@{ Top=$top }
+          } | Group-Object Top | Sort-Object Count -Descending | Select-Object Count,Name | Format-Table -AutoSize
+          $files | Sort-Object Length -Descending | Select-Object -First 20 @{Name="GB";Expression={[math]::Round($_.Length/1GB,2)}}, @{Name="Path";Expression={$_.FullName}} | Format-Table -AutoSize
 
       - name: Upload EXE candidate
         uses: actions/upload-artifact@v4
