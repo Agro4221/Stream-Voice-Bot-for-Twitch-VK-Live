@@ -1107,6 +1107,22 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, clean))
         return {"ok": True, "tracks": subtitle_tracks}
 
+    @app.post("/api/subtitles/test/{track_id}")
+    async def subtitle_track_test(track_id: str):
+        track_id = str(track_id or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
+            raise HTTPException(400, "Invalid subtitle track id")
+        with subtitle_lock:
+            if track_id not in subtitle_state:
+                raise HTTPException(404, "Subtitle track not found")
+            ts = time.time()
+            subtitle_state[track_id].update({
+                "text": "Тест субтитров ✓",
+                "timestamp": ts,
+                "language": subtitle_state[track_id].get("language", "ru"),
+            })
+        return {"ok": True, "track_id": track_id, "text": "Тест субтитров ✓", "timestamp": ts}
+
     @app.post("/api/subtitles/test")
     async def subtitles_test():
         test_text = "Тест субтитров ✓"
