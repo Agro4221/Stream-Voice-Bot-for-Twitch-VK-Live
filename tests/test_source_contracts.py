@@ -243,6 +243,17 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn(r"dima\s*torzok", subtitles)
 
 
+    def test_stt_can_install_local_cuda_runtime_on_demand(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("def _install_gpu_runtime", stt)
+        self.assertIn("cublas64_12.dll", stt)
+        self.assertIn("cudnn64_9.dll", stt)
+        self.assertIn('["tar", "-xf"', stt)
+        self.assertIn("data/gpu_runtime", web)
+        self.assertIn("849 МБ", web)
+
+
 
 if __name__ == "__main__":
     unittest.main()
