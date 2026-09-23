@@ -99,6 +99,25 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('@app.get("/api/logs")', app)
         self.assertIn('@app.post("/api/logs/clear")', app)
 
+    def test_stt_source_subtitles_are_not_routed_by_detected_language(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        app = self.read("stream_voice_bot/app.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn('"source": True', stt)
+        self.assertIn('"source": False', stt)
+        self.assertIn("is_translated = data.get(\"source\") is False", app)
+        self.assertIn("Original STT text always goes to the enabled source tracks.", app)
+        self.assertIn("status-good", web)
+        self.assertIn("status-bad", web)
+        self.assertIn("status-pending", web)
+
+    def test_unused_packaging_dependencies_are_not_declared(self):
+        requirements = self.read("requirements.txt")
+        self.assertNotIn("obsws-python", requirements)
+        self.assertNotIn("pydantic-settings", requirements)
+        self.assertIn("uvicorn", requirements)
+        self.assertNotIn("uvicorn[standard]", requirements)
+
     def test_stt_is_bounded_and_validated(self):
         src = self.read("stream_voice_bot/stt.py")
         self.assertIn("deque(maxlen=200)", src)
