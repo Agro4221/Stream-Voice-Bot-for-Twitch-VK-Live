@@ -7,6 +7,7 @@ from stream_voice_bot.db import Database
 from stream_voice_bot.vkplay import parse_vk_reward_announcement
 from stream_voice_bot import log_buffer
 import stream_voice_bot.stt as stt_module
+import stream_voice_bot.tts as tts_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
