@@ -818,8 +818,8 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     @app.post("/api/queue/clear")
     async def clear():
-        queue.clear()
-        return {"ok": True}
+        cleared = queue.clear()
+        return {"ok": True, "cleared": cleared}
 
     @app.post("/api/repeat/{history_id}")
     async def repeat_one(history_id: int, profile: str = "normal"):
