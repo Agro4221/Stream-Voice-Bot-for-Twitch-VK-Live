@@ -52,6 +52,7 @@ jobs:
             -f description='Локальный Windows-бот для стримов: Twitch + VK Video Live, Silero TTS, STT и OBS-субтитры. Сабы пока нестабильны — исправления в работе. Не судите строго: я новичок ^_^' \
             >/dev/null 2>&1 || true
 
+      # Release notes are sourced from the versioned notes file so existing releases can be refreshed too.
       - name: Publish release
         if: steps.version.outputs.version == '1.1.11'
         env:
