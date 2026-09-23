@@ -399,7 +399,7 @@ function languageOptions(selected){
 }
 function renderSubtitleTracks(tracks){
   const box=document.getElementById('subtitleTracks');
-  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}">
+  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}" data-id="${esc(t.id||'')}">
     <div class="row">
       <div class="field"><label>ID</label><input data-k="id" value="${esc(t.id||'')}" maxlength="32"></div>
       <div class="field" style="flex:1"><label>Название</label><input data-k="name" value="${esc(t.name||'')}" maxlength="64" style="width:100%"></div>
@@ -409,7 +409,7 @@ function renderSubtitleTracks(tracks){
         <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
       </select></div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
-      <button class="secondary" onclick="testSubtitleTrack(t.id)">Тест</button>
+      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack').dataset.id)">Тест</button>
       <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
     </div>
     <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
