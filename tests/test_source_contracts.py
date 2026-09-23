@@ -237,10 +237,10 @@ class StabilitySourceContractTests(unittest.TestCase):
         app = self.read("stream_voice_bot/app.py")
         subtitles = self.read("stream_voice_bot/web/subtitles.html")
         self.assertIn("_is_bad_subtitle_text", app)
-        self.assertIn(r"\\bdima\\s*torzok\\b", app)
+        self.assertIn(r"\bdima\s*torzok\b", app)
         self.assertIn("if not text_value or _is_bad_subtitle_text(text_value)", app)
         self.assertIn("const blocked=", subtitles)
-        self.assertIn("dima\\s*torzok", subtitles)
+        self.assertIn(r"dima\s*torzok", subtitles)
 
 
 
