@@ -104,6 +104,12 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"stt": {**stt_status, **stt.state()}', app)
         self.assertIn("The service state is authoritative.", app)
 
+    def test_stt_cuda_is_checked_before_model_download(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("def _check_cuda_runtime(self)", stt)
+        self.assertIn("ctranslate2.get_cuda_device_count()", stt)
+        self.assertIn("self._check_cuda_runtime()", stt)
+
     def test_stt_gpu_error_mentions_missing_cublas(self):
         stt = self.read("stream_voice_bot/stt.py")
         self.assertIn("cublas64_12.dll", stt)
