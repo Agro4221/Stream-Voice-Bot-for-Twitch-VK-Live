@@ -191,7 +191,9 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("loaded_model, loaded_backend = self.loaded_model_key", src)
         self.assertIn("def _should_skip_segment", src)
         self.assertIn("_HALLUCINATION_CREDIT_RE", src)
-        self.assertIn('"min_silence_duration_ms": 500', src)
+        self.assertIn('"min_silence_duration_ms": 300', src)
+        self.assertIn('"speech_pad_ms": 200', src)
+        self.assertIn('"threshold": 0.35', src)
         self.assertIn('"speech_pad_ms": 150', src)
 
 
