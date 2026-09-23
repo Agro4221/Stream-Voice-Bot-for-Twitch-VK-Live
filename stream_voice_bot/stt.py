@@ -739,6 +739,18 @@ class STTService:
                 source_audio = buf[-chunk_samples:]
                 buf = buf[-overlap_samples:] if overlap_samples else np.zeros(0, dtype=np.float32)
 
+                # USB microphone drivers may expose a very low digital level.
+                # Apply a conservative automatic gain only to quiet input so
+                # Silero VAD and Whisper can still see normal speech.
+                raw_peak = float(np.max(np.abs(source_audio))) if source_audio.size else 0.0
+                if raw_peak > 0.0005 and raw_peak < 0.08:
+                    gain = min(12.0, max(1.0, 0.18 / raw_peak))
+                else:
+                    gain = 1.0
+                self.input_gain = gain
+                if gain > 1.0:
+                    source_audio = np.clip(source_audio * gain, -1.0, 1.0).astype(np.float32)
+
                 if input_rate != target_rate:
                     audio = resample_poly(
                         source_audio,
@@ -749,18 +761,6 @@ class STTService:
                     audio = source_audio
 
                 try:
-                    # USB microphone drivers may expose a very low digital level.
-                    # Apply a conservative automatic gain only to quiet input so
-                    # Silero VAD and Whisper can still see normal speech.
-                    raw_peak = float(np.max(np.abs(source_audio))) if source_audio.size else 0.0
-                    raw_rms = float(np.sqrt(np.mean(np.square(source_audio), dtype=np.float64))) if source_audio.size else 0.0
-                    if raw_peak > 0.0005 and raw_peak < 0.08:
-                        gain = min(12.0, max(1.0, 0.18 / raw_peak))
-                    else:
-                        gain = 1.0
-                    self.input_gain = gain
-                    if gain > 1.0:
-                        source_audio = np.clip(source_audio * gain, -1.0, 1.0).astype(np.float32)
                     transcribe_started = time.monotonic()
                     self.transcribe_attempts += 1
                     self.last_transcribe_at = time.time()
