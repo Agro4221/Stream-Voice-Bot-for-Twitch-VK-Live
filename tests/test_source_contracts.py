@@ -252,6 +252,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("def _install_gpu_runtime", stt)
         self.assertIn("cublas64_12.dll", stt)
         self.assertIn("cudnn64_9.dll", stt)
+        self.assertIn("path.stat().st_size > 64_000", stt)
+        self.assertNotIn("path.stat().st_size > 1_000_000", stt)
         self.assertIn('["tar", "-xf"', stt)
         self.assertIn("CREATE_NO_WINDOW", stt)
         self.assertIn('tar_kwargs["creationflags"]', stt)
