@@ -409,6 +409,7 @@ function renderSubtitleTracks(tracks){
         <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
       </select></div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
+      <button class="secondary" onclick="testSubtitleTrack(t.id)">Тест</button>
       <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
     </div>
     <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
@@ -428,6 +429,15 @@ function addSubtitleTrack(){
 async function saveSubtitleTracks(){
   try{ const x=await api('/api/subtitles/tracks',{method:'POST',body:JSON.stringify({tracks:collectSubtitleTracks()})}); renderSubtitleTracks(x.tracks); document.getElementById('subtitleInfo').textContent='Дорожки субтитров сохранены.'; refresh(); }
   catch(e){ document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message; }
+}
+async function testSubtitleTrack(id){
+  try{
+    const x=await api('/api/subtitles/test/'+encodeURIComponent(id),{method:'POST'});
+    document.getElementById('subtitleInfo').textContent='Тест отправлен в дорожку '+id+': '+x.text;
+    refresh();
+  }catch(e){
+    document.getElementById('subtitleInfo').textContent='Ошибка теста дорожки '+id+': '+e.message;
+  }
 }
 async function testSubtitles(){
   try{
