@@ -620,7 +620,11 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                 "service_key_saved": secret_store.has("vk_service_key"),
                 "secure_key_saved": secret_store.has("vk_secure_key"),
             },
-            "stt": {**stt.state(), **stt_status},
+            # The service state is authoritative. The callback snapshot may
+            # contain fields from an earlier status event (for example a stale
+            # CUDA device after a failed reload), so never let it overwrite the
+            # live STT state.
+            "stt": {**stt_status, **stt.state()},
             "subtitle": sub,
             "subtitle_tracks": subtitle_tracks,
             "translation": translation_status,
