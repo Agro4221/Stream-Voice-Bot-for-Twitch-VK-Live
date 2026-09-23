@@ -1139,10 +1139,27 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
+            was_running = bool(stt.thread and stt.thread.is_alive())
+            previous_model = stt.config.model_name
+            previous_device = stt.config.device_mode
             stt.save_config(**kwargs)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
-        return {"ok": True, "state": stt.state()}
+
+        changed_runtime = (
+            was_running
+            and (
+                previous_model != stt.config.model_name
+                or previous_device != stt.config.device_mode
+            )
+        )
+        if changed_runtime:
+            # Do not silently keep an old CUDA/CPU model after the user saved
+            # a different device/model. Stop the current worker; the UI can
+            # then start the newly selected configuration deterministically.
+            stt.stop()
+
+        return {"ok": True, "restart_required": changed_runtime, "state": stt.state()}
 
     @app.post("/api/stt/start")
     async def stt_start():
