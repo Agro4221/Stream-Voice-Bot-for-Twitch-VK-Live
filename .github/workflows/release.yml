@@ -69,14 +69,18 @@ jobs:
           test -s "$zip"
           test -s "$zip.sha256"
 
-      - name: Update repository description
+      - name: Update repository description (best effort)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh api --method PATCH "repos/${{ github.repository }}" \
+          if gh api --method PATCH "repos/${{ github.repository }}" \
             -f description='Windows stream bot: Twitch + VK Video Live, Silero TTS, faster-whisper STT и OBS-субтитры. Сабы пока нестабильны; исправления в работе — я новичок ^_^' \
-            >/dev/null
+            >/dev/null 2>&1; then
+            echo "Repository description updated."
+          else
+            echo "Repository description could not be updated by GITHUB_TOKEN; continuing release."
+          fi
 
       - name: Publish release
         env:
