@@ -252,6 +252,16 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                 track["mode"] = "translate"
     except Exception:
         subtitle_tracks = default_subtitle_tracks
+    _SUBTITLE_CREDIT_RE = re.compile(
+        r"(?:\\bsubtitles?\\s+(?:made|created|provided)\\s+by\\b|"
+        r"\\b(?:субтитры|субтитров)\\s+(?:сделаны|сделано|созданы|создано|предоставлены)\\b|"
+        r"\\bdima\\s*torzok\\b)",
+        re.IGNORECASE,
+    )
+
+    def _is_bad_subtitle_text(value: str) -> bool:
+        return bool(_SUBTITLE_CREDIT_RE.search(" ".join(str(value or "").split())))
+
     subtitle_state = {
         str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru")}
         for t in subtitle_tracks
@@ -288,6 +298,11 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             pass
 
     def on_subtitle(data: dict):
+        text_value = str(data.get("text") or "").strip()
+        if not text_value or _is_bad_subtitle_text(text_value):
+            log.warning("Blocked subtitle hallucination/credit text: %r", text_value)
+            return
+
         explicit_track = str(data.get("track_id") or "").strip().lower()
         is_translated = data.get("source") is False
         with subtitle_lock:
@@ -1097,9 +1112,13 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         subtitle_tracks = clean
         db.set_setting("subtitle_tracks", json.dumps(subtitle_tracks, ensure_ascii=False))
         with subtitle_lock:
+            active_ids = {t["id"] for t in subtitle_tracks}
             for t in subtitle_tracks:
-                subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
-            stale = [k for k in subtitle_state if k not in {t["id"] for t in subtitle_tracks}]
+                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+                state["language"] = t["language"]
+                if not t.get("enabled", True):
+                    state.update({"text": "", "timestamp": 0})
+            stale = [k for k in subtitle_state if k not in active_ids]
             for k in stale:
                 subtitle_state.pop(k, None)
         source_language = db.get_setting("stt_language", "ru") or "ru"
