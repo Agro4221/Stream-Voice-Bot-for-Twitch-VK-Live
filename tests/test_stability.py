@@ -6,14 +6,47 @@ from pathlib import Path
 from stream_voice_bot.db import Database
 from stream_voice_bot.vkplay import parse_vk_reward_announcement
 from stream_voice_bot import log_buffer
+from stream_voice_bot.models import QueueItem
 import stream_voice_bot.stt as stt_module
+import stream_voice_bot.tts as tts_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
+    def test_stt_filters_subtitle_credit_hallucination(self):
+        class Segment:
+            avg_logprob = -0.1
+            no_speech_prob = 0.1
+            compression_ratio = 1.2
+
+        self.assertTrue(
+            stt_module._should_skip_segment(
+                Segment(),
+                "Subtitles made by Dima Torzok",
+            )
+        )
+        self.assertFalse(stt_module._should_skip_segment(Segment(), "Привет, это тест."))
+
+    def test_stt_model_and_device_changes_do_not_break_active_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            active_model = object()
+            service.model = active_model
+            service.runtime_device = "cpu"
+            service.loaded_model_key = ("large-v3-turbo", "cpu")
+
+            service.save_config(model_name="small", device_mode="cuda")
+
+            self.assertIs(service.model, active_model)
+            self.assertEqual(service.config.model_name, "small")
+            self.assertEqual(service.config.device_mode, "cuda")
+
     def test_stt_falls_back_to_device_supported_sample_rate(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
             service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            self.assertEqual(service.config.chunk_seconds, 2.5)
+            self.assertEqual(service.config.overlap_seconds, 0.25)
             service.config.sample_rate = 16000
             service.config.input_device = 3
 
@@ -105,7 +138,7 @@ class StabilityDatabaseTests(unittest.TestCase):
                 self.assertEqual(rate, 16000)
                 self.assertFalse(stream.closed)
                 self.assertTrue(stream.kwargs["extra_settings"].auto_convert)
-                self.assertEqual(stream.kwargs["channels"], 1)
+                self.assertEqual(stream.kwargs["channels"], 2)
                 stream.close()
             finally:
                 stt_module.sd = real_sd

@@ -166,6 +166,9 @@ def main() -> None:
                 app.state.server = fake_server
                 shutdown = await client.post("/api/shutdown")
                 assert shutdown.status_code == 200, shutdown.text
+                deadline = time.time() + 3.0
+                while time.time() < deadline and not fake_server.should_exit:
+                    await asyncio.sleep(0.05)
                 assert fake_server.should_exit is True
 
         asyncio.run(exercise_http())

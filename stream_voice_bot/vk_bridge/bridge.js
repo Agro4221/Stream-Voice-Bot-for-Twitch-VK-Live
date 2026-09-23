@@ -26,6 +26,18 @@ function emitStatus(connected, message, channel = "") {
   }) + "\n");
 }
 
+function isChatBotContext(ctx) {
+  const user = ctx?.user || {};
+  const names = [
+    user.nick,
+    user.displayName,
+    user.name,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+  return names.includes("chatbot");
+}
+
 function mapMessageContext(ctx) {
   const text = String(ctx?.message?.text || "").trim();
   if (!text) return null;
@@ -83,11 +95,17 @@ async function main() {
     const mapped = mapMessageContext({
       id: 42,
       createdAt: 1700000000,
-      user: { id: 7, nick: "Jostik", displayName: "Jostik" },
-      message: { text: "Тест-Тест 123" },
+      user: { id: 7, nick: "ChatBot", displayName: "ChatBot" },
+      message: { text: "ChatBot: Jostik получает награду за 2: Тест-Тест 123" },
     });
-    if (!mapped || mapped.username !== "Jostik" || mapped.text !== "Тест-Тест 123") {
+    if (!mapped || mapped.username !== "ChatBot" || mapped.text !== "ChatBot: Jostik получает награду за 2: Тест-Тест 123") {
       throw new Error("VK bridge message mapping self-test failed");
+    }
+    if (isChatBotContext({ user: { nick: "Jostik", displayName: "Jostik" } })) {
+      throw new Error("VK bridge ordinary-chat filter self-test failed");
+    }
+    if (!isChatBotContext({ user: { nick: "ChatBot", displayName: "ChatBot" } })) {
+      throw new Error("VK bridge ChatBot filter self-test failed");
     }
 
     console.log(JSON.stringify({
@@ -116,8 +134,12 @@ async function main() {
 
     client.on("message", (ctx) => {
       try {
+        if (!isChatBotContext(ctx)) {
+          return;
+        }
         const chat = mapMessageContext(ctx);
         if (chat) {
+          chat.is_chatbot = true;
           process.stdout.write(JSON.stringify(chat) + "\n");
         }
       } catch (error) {

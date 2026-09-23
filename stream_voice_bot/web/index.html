@@ -37,7 +37,7 @@ button.secondary{background:#303746}
 .small{font-size:12px;color:var(--muted)}
 .button-link{display:inline-block;text-decoration:none;border-radius:9px;padding:9px 12px;background:#303746;color:white}.button-link:hover{filter:brightness(1.12)}
 .stat{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
-.pill{padding:4px 8px;border-radius:999px;background:var(--panel2)}
+.pill{padding:4px 8px;border-radius:999px;background:var(--panel2);border:1px solid transparent}.status-good{background:#183126;border-color:#2e6b4d;color:var(--ok)}.status-bad{background:#361d22;border-color:#7c3641;color:#ff8a8a}.status-pending{background:#362b1b;border-color:#765d2c;color:#e4c285}
 .current{background:#18263c;border-color:#34527f}
 .queue-item{border:1px solid var(--border);padding:9px;border-radius:9px;margin-top:7px}
 .history{max-height:450px;overflow:auto}
@@ -47,7 +47,7 @@ td.text{max-width:520px;word-break:break-word}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 .field{min-width:150px}.range-wrap{display:flex;align-items:center;gap:10px}.range-wrap input[type=range]{flex:1}.range-value{min-width:68px;text-align:right;font-variant-numeric:tabular-nums}.subtrack{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:8px;background:var(--panel2)}
-.notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.profile-box{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
+.notice{padding:9px;border-radius:9px;background:#2a2218;color:#e4c285}.profile-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.profile-box{min-width:0;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel2)}.profile-box select,.profile-box input[type=range]{max-width:100%}.range-wrap input[type=range]{min-width:0}.dirty{border-color:#8b6b2f!important;box-shadow:0 0 0 1px #8b6b2f55}@media(max-width:700px){.profile-grid{grid-template-columns:1fr}}
 .oktext{color:var(--ok)} .badtext{color:var(--danger)}
 .runtime-logs{max-height:360px;overflow:auto;background:#0a0d12;border:1px solid var(--border);border-radius:10px;padding:8px;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:12px;line-height:1.45}
 .log-line{display:grid;grid-template-columns:82px 72px 170px 1fr;gap:8px;padding:4px 6px;border-bottom:1px solid #171c24}
@@ -61,7 +61,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div><h1>Stream Voice Bot</h1><div class="small">TTS queue / Silero V5 / локальный аудиовывод / 2 профиля голоса</div></div>
   <div class="row">
     <div id="status" class="pill">Подключение...</div>
-    <button class="danger" type="button" onclick="shutdownBot()">Завершить работу</button>
+    <button id="shutdownButton" class="danger" type="button" onclick="shutdownBot()">Выключить</button>
   </div>
 </header>
 
@@ -69,9 +69,9 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <section class="card wide">
   <h2>Интеграция</h2>
   <div class="row">
-    <span id="twitchStatus" class="pill">Twitch: не подключён</span>
-    <span id="vkStatusTop" class="pill">VK Видео Live: не подключён</span>
-     <span id="sttStatus" class="pill">STT: остановлен</span>
+    <span id="twitchStatus" class="pill status-bad">Twitch: не подключён</span>
+    <span id="vkStatusTop" class="pill status-bad">VK Видео Live: не подключён</span>
+     <span id="sttStatus" class="pill status-bad">STT: остановлен</span>
   </div>
   <div class="notice" style="margin-top:10px">
     Субтитры настраиваются ниже. Для каждой дорожки свой OBS URL: <code>/subtitles/ID</code>.
@@ -180,13 +180,12 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <section class="card wide">
   <h2>Twitch</h2>
   <div class="row">
-    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="text" style="width:100%" autocomplete="off" placeholder="Вставь Client ID один раз"></div>
+    <div class="field" style="flex:1"><label>Client ID</label><input id="twitch_id" type="password" style="width:100%" autocomplete="off" placeholder="Вставь Client ID один раз"></div>
   </div>
   <div class="actions" style="margin-top:10px">
     <button onclick="saveTwitch()">Сохранить Client ID</button>
     <button class="ok" onclick="connectTwitch()">Подключить Twitch</button>
     <button class="secondary" onclick="disconnectTwitch()">Отключить</button>
-    <button class="secondary" onclick="loadRewards()">Загрузить Channel Points</button>
   </div>
   <div class="row" style="margin-top:8px">
     <a class="button-link" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">Где взять Client ID ↗</a>
@@ -194,19 +193,18 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   </div>
   <div id="twitchInfo" class="small" style="margin-top:8px"></div>
 
-  <h3 style="margin-top:18px">Награды Channel Points</h3>
+  <h3 style="margin-top:18px">Channel Points</h3>
   <div class="small">
-    Включи «требовать текст», задай подсказку и сохрани правило.
-    Тогда Twitch покажет зрителю поле ввода перед активацией награды.
+    Для TTS используется только награда с названием <b>«Озвучить сообщение»</b>.
+    В настройках этой награды Twitch должен быть включён ввод текста зрителем.
+    Полученный текст автоматически попадает в очередь и после озвучки награда закрывается.
   </div>
-  <div id="rewards"></div>
 </section>
 
 <section class="card wide">
   <h2>VK Видео Live</h2>
   <div class="row">
     <div class="field" style="flex:1"><label>Канал VK Видео Live</label><input id="vk_channel" type="text" style="width:100%" placeholder="логин канала или https://live.vkvideo.ru/username"></div>
-    <span id="vkStatus" class="pill">VK Видео Live: не настроен</span>
   </div>
   <div class="row" style="margin-top:8px">
     <div class="field" style="flex:1"><label>VK_SERVICE_KEY</label><input id="vk_service" type="password" style="width:100%" autocomplete="new-password" placeholder="не вводить повторно после сохранения"></div>
@@ -228,7 +226,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Субтитры для OBS</h2><div class="small">Для каждой дорожки можно выбрать оригинал или автоматический перевод на отдельный язык. Дорожки можно выводить одновременно через несколько Browser Source.</div></div><button class="secondary" onclick="addSubtitleTrack()">+ Добавить дорожку</button></div>
   <div id="subtitleTracks"></div>
   <div class="small" style="margin-top:10px">URL дорожки: <code>http://127.0.0.1:8787/subtitles/ID</code>. Для каждой дорожки можно выбрать оригинал или перевод STT на другой язык. Перевод выполняется локально через Argos Translate; нужные языковые пакеты скачиваются один раз.</div>
-  <div class="actions" style="margin-top:10px"><button onclick="saveSubtitleTracks()">Сохранить дорожки</button><button class="secondary" onclick="prepareSubtitleTranslations()">Подготовить переводчики</button></div>
+  <div class="actions" style="margin-top:10px"><button onclick="saveSubtitleTracks()">Сохранить дорожки</button><button class="secondary" onclick="prepareSubtitleTranslations()">Подготовить переводчики</button><button class="secondary" onclick="testSubtitles()">Тест субтитров</button></div>
   <div id="subtitleInfo" class="small" style="margin-top:8px"></div>
 </section>
 
@@ -240,17 +238,20 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     </select></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="4"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".5"></div>
-    <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
+    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
+    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
+    <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">GPU (NVIDIA CUDA)</option><option value="cpu">CPU int8</option></select></div>
+    <div class="field"><label>Compute (авто)</label><select id="stt_compute" disabled><option>float16</option><option>int8</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
     <button onclick="saveStt()">Сохранить STT</button>
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Субтитры можно пока не использовать. Первый запуск модели STT может скачать модель с Hugging Face. На RTX 3060 сначала пробуем CUDA; при ошибке приложение автоматически попытается CPU.</div>
+  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA; если локального GPU runtime нет, он один раз автоматически скачивается и сохраняется в data/gpu_runtime. При неудаче приложение переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер. Первый GPU запуск может скачать около 849 МБ.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
+  <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
+  <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
 </section>
 
 <section class="card wide">
@@ -284,21 +285,43 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 </main>
 
 <script>
+function showShutdownPopup(){
+  let popup=document.getElementById('shutdownPopup');
+  if(!popup){
+    popup=document.createElement('div');
+    popup.id='shutdownPopup';
+    popup.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.72);z-index:9999';
+    popup.innerHTML='<div style="max-width:420px;width:calc(100% - 32px);background:#171b24;border:1px solid #34527f;border-radius:14px;padding:22px;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.45)"><h2>Бот выключен</h2><p class="small" style="margin:10px 0 18px">Stream Voice Bot полностью завершил работу.</p><button class="ok" type="button" onclick="this.closest(\'#shutdownPopup\').style.display=\'none\'">Понятно</button></div>';
+    document.body.appendChild(popup);
+  }
+  popup.style.display='flex';
+}
+
 async function shutdownBot(){
-  if(!confirm('Завершить работу бота? Twitch, VK, STT и TTS будут корректно остановлены.')) return;
-  const button=document.querySelector('header button.danger');
+  const button=document.getElementById('shutdownButton');
+  const status=document.getElementById('status');
+  if(shutdownRequested) return;
+  if(!confirm('Выключить Stream Voice Bot?')) return;
+
+  // Freeze the status UI before making the request. A refresh request that was
+  // already in flight must not be allowed to paint "Работает" again.
+  shutdownRequested=true;
   if(button) button.disabled=true;
-  document.getElementById('status').textContent='Завершение работы…';
+  if(status){ status.textContent='Выключение…'; status.className='pill'; }
+  if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
+  if(logTimer){ clearInterval(logTimer); logTimer=null; }
+
   try{
-    await api('/api/shutdown',{method:'POST'});
-    if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
-    if(logTimer){ clearInterval(logTimer); logTimer=null; }
-    document.getElementById('status').textContent='Бот остановлен — окно можно закрыть';
-    document.title='Stream Voice Bot — остановлен';
+    await api('/api/shutdown',{method:'POST',keepalive:true});
+    if(status){ status.textContent='Выключен'; status.className='pill'; }
+    document.title='Stream Voice Bot — выключен';
+    showShutdownPopup();
   }catch(e){
+    shutdownRequested=false;
     if(button) button.disabled=false;
-    document.getElementById('status').textContent='Ошибка завершения';
-    alert('Не удалось завершить работу: '+e.message);
+    if(status){ status.textContent='Ошибка'; status.className='pill badtext'; }
+    console.error('shutdown failed',e);
+    alert('Не удалось выключить бота: '+e.message);
   }
 }
 
@@ -329,6 +352,7 @@ function formatHistoryTime(value){
 let refreshBusy=false;
 let refreshTimer=null;
 let logTimer=null;
+let shutdownRequested=false;
 
 function isUserEditing(el, serverValue){
   if(!el) return true;
@@ -375,7 +399,7 @@ function languageOptions(selected){
 }
 function renderSubtitleTracks(tracks){
   const box=document.getElementById('subtitleTracks');
-  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}">
+  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}" data-id="${esc(t.id||'')}">
     <div class="row">
       <div class="field"><label>ID</label><input data-k="id" value="${esc(t.id||'')}" maxlength="32"></div>
       <div class="field" style="flex:1"><label>Название</label><input data-k="name" value="${esc(t.name||'')}" maxlength="64" style="width:100%"></div>
@@ -385,6 +409,7 @@ function renderSubtitleTracks(tracks){
         <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
       </select></div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
+      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack').dataset.id)">Тест</button>
       <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
     </div>
     <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
@@ -405,6 +430,24 @@ async function saveSubtitleTracks(){
   try{ const x=await api('/api/subtitles/tracks',{method:'POST',body:JSON.stringify({tracks:collectSubtitleTracks()})}); renderSubtitleTracks(x.tracks); document.getElementById('subtitleInfo').textContent='Дорожки субтитров сохранены.'; refresh(); }
   catch(e){ document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message; }
 }
+async function testSubtitleTrack(id){
+  try{
+    const x=await api('/api/subtitles/test/'+encodeURIComponent(id),{method:'POST'});
+    document.getElementById('subtitleInfo').textContent='Тест отправлен в дорожку '+id+': '+x.text;
+    refresh();
+  }catch(e){
+    document.getElementById('subtitleInfo').textContent='Ошибка теста дорожки '+id+': '+e.message;
+  }
+}
+async function testSubtitles(){
+  try{
+    const x=await api('/api/subtitles/test',{method:'POST'});
+    document.getElementById('subtitleInfo').textContent='Тест отправлен: '+(x.text||'Тест субтитров');
+    refresh();
+  }catch(e){
+    document.getElementById('subtitleInfo').textContent='Ошибка теста субтитров: '+e.message;
+  }
+}
 async function prepareSubtitleTranslations(){
   try{
     const x=await api('/api/subtitles/prepare',{method:'POST'});
@@ -413,7 +456,7 @@ async function prepareSubtitleTranslations(){
   }catch(e){document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message;}
 }
 async function refresh(){
-  if(refreshBusy) return;
+  if(shutdownRequested || refreshBusy) return;
   refreshBusy=true;
   try{
     const [s,h,dev]=await Promise.all([api('/api/state'),api('/api/history?limit=120'),api('/api/audio/devices')]);
@@ -448,11 +491,13 @@ async function refresh(){
 
     // VK channel keeps a local draft while the user edits it.
     writeServerValue('vk_channel', s.vkplay.channel_id||'');
-    const vk=document.getElementById('vkStatus');
     const vkTop=document.getElementById('vkStatusTop');
     const vkText=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
-    vk.textContent=vkText; vkTop.textContent=vkText;
-    document.getElementById('vkInfo').textContent=s.vkplay.message||'';
+    const vkClass=s.vkplay.connected ? 'pill status-good' : 'pill status-bad';
+    vkTop.textContent=vkText; vkTop.className=vkClass;
+    document.getElementById('vkInfo').textContent=
+      [s.vkplay.message||'', s.vkplay.last_event ? 'Последнее событие: '+s.vkplay.last_event : '']
+      .filter(Boolean).join(' · ');
     if(s.vkplay.service_key_saved || s.vkplay.secure_key_saved){
       document.getElementById('vkInfo').textContent +=
         ' · Keys: '+(s.vkplay.service_key_saved?'SERVICE ✓':'SERVICE —')+
@@ -460,24 +505,72 @@ async function refresh(){
     }
 
     const tw=document.getElementById('twitchStatus');
-    tw.textContent=s.twitch.authorized ? ('Twitch: '+(s.twitch.user.login||'подключён')+(s.twitch.connected?' · EventSub ✓':' · EventSub не запущен')) : 'Twitch: не авторизован';
+    if(s.twitch.connected){
+      tw.textContent='Twitch: '+(s.twitch.user.login||'подключён')+' · EventSub ✓';
+      tw.className='pill status-good';
+    } else if(!s.twitch.client_configured){
+      tw.textContent='Twitch: не настроен';
+      tw.className='pill status-bad';
+    } else if(!s.twitch.authorized){
+      tw.textContent='Twitch: не авторизован';
+      tw.className='pill status-bad';
+    } else {
+      tw.textContent='Twitch: '+(s.twitch.user.login||'авторизован')+' · EventSub не запущен';
+      tw.className='pill status-bad';
+    }
     const st=document.getElementById('sttStatus');
+    const computeEl=document.getElementById('stt_compute');
+    if(computeEl){
+      const actualCompute=String(s.stt.runtime_compute_type||'').trim() ||
+        ((s.stt.device_mode||'auto')==='cpu' ? 'int8' : 'float16');
+      computeEl.value=actualCompute;
+    }
     if(s.stt.model_loading){
-      st.textContent='STT: загрузка · '+(s.stt.model||'');
-      st.className='pill';
-    } else if(s.stt.running){
-      st.textContent='STT: работает · '+(s.stt.model||'');
-      st.className='pill oktext';
+      const loadingSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
+      const progress=Number(s.stt.loading_progress);
+      const rate=Number(s.stt.loading_rate_mbps);
+      const progressText=Number.isFinite(progress) && progress>0 ? ' · '+progress.toFixed(0)+'%' : '';
+      const rateText=Number.isFinite(rate) && rate>0 ? ' · '+rate.toFixed(1)+' МБ/с' : '';
+      st.textContent='STT: загрузка · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'')+progressText+rateText+(loadingSeconds>=10?' · '+loadingSeconds+' с':'');
+      st.className='pill status-pending';
     } else if(s.stt.last_error){
-      st.textContent='STT: ошибка';
-      st.className='pill';
+      st.textContent='STT: ошибка · '+(s.stt.device||s.stt.configured_device||'');
+      st.className='pill status-bad';
+    } else if(s.stt.running){
+      st.textContent='STT: работает · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'');
+      st.className='pill status-good';
     } else {
       st.textContent='STT: остановлен';
-      st.className='pill';
+      st.className='pill status-bad';
     }
-    document.getElementById('twitchInfo').textContent=s.twitch.message||'';
+    document.getElementById('twitchInfo').textContent=
+      [s.twitch.message||'', s.twitch.last_event ? 'Последнее событие: '+s.twitch.last_event : '']
+      .filter(Boolean).join(' · ');
+    const sttLastText=document.getElementById('sttLastText');
+    if(sttLastText){
+      const lastText=String(s.stt.last_text||'').trim();
+      sttLastText.textContent=lastText ? 'Последнее распознавание: '+lastText : 'Последнее распознавание: пока нет текста.';
+    }
+    const sttAudioInfo=document.getElementById('sttAudioInfo');
+    if(sttAudioInfo){
+      const rms=Number(s.stt.audio_rms||0);
+      const peak=Number(s.stt.audio_peak||0);
+      const blocks=Number(s.stt.audio_blocks_received||0);
+      const attempts=Number(s.stt.transcribe_attempts||0);
+      const duration=Number(s.stt.last_transcribe_duration||0);
+      const result=String(s.stt.last_transcribe_result||'ещё не запускалось');
+      const signalWarning=(blocks>100 && rms<0.005 && peak<0.02)
+        ? ' · ⚠ очень низкий уровень сигнала — проверь микрофон/громкость Windows'
+        : '';
+      const gain=Number(s.stt.input_gain||1);
+      sttAudioInfo.textContent='Микрофон: RMS '+rms.toFixed(3)+' · пик '+peak.toFixed(3)+' · автоусиление x'+gain.toFixed(1)+' · блоков '+blocks+' · окон STT '+attempts+' · последнее окно '+duration.toFixed(1)+' с · '+result+signalWarning;
+    }
     if(!document.getElementById('sttInfo').matches(':focus')){
-      document.getElementById('sttInfo').textContent=s.stt.message||'';
+      const sttMessage=s.stt.message||'';
+    const sttSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
+    document.getElementById('sttInfo').textContent=(s.stt.model_loading && sttSeconds>=15 && sttMessage)
+      ? sttMessage+' Прошло '+sttSeconds+' с; первый запуск модели может занять несколько минут.'
+      : sttMessage;
     }
 
     const ttsFields={
@@ -519,9 +612,10 @@ async function refresh(){
     const sttFields={
       stt_model:s.stt.model||'large-v3-turbo',
       stt_language:s.stt.language||'ru',
-      stt_chunk:s.stt.chunk_seconds||4,
-      stt_overlap:s.stt.overlap_seconds??0.5,
-      stt_compute:s.stt.compute_type||'float16'
+      stt_chunk:s.stt.chunk_seconds||2.5,
+      stt_overlap:s.stt.overlap_seconds??0.25,
+      stt_compute:s.stt.compute_type||'float16',
+      stt_device:s.stt.device_mode||'auto'
     };
     Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
     document.getElementById('sttDirty').style.display=Object.keys(sttFields).concat(['stt_input']).some(id=>{
@@ -547,8 +641,8 @@ async function refresh(){
         <td><button class="secondary" onclick="repeatOne(${x.id})">Повтор</button></td>
       </tr>`).join('');
   }catch(e){
-    document.getElementById('status').textContent='Ошибка';
-    document.getElementById('status').className='pill badtext';
+    document.getElementById('status').textContent='Выключен';
+    document.getElementById('status').className='pill';
     console.error(e);
   }finally{
     refreshBusy=false;
@@ -804,7 +898,13 @@ function bindEditableState(id){
 }
 function clearEditableState(id){
   const el=document.getElementById(id);
-  if(el){ delete el.dataset.userEdited; el.classList.remove('dirty'); }
+  if(el){
+    delete el.dataset.userEdited;
+    el.classList.remove('dirty');
+    // The just-saved DOM value is now the server value. Otherwise refresh()
+    // sees the old dataset.serverValue and immediately marks the field dirty again.
+    el.dataset.serverValue=String(el.value);
+  }
 }
 
 [
@@ -828,37 +928,104 @@ async function startVk(){
   catch(e){document.getElementById('vkInfo').textContent='Ошибка VK Видео Live: '+e.message}
 }
 async function stopVk(){
-  try{await api('/api/vkplay/stop',{method:'POST'});refresh();}catch(e){alert(e.message)}
+  const info=document.getElementById('vkInfo');
+  if(info) info.textContent='Останавливаю VK Видео Live…';
+  try{
+    await api('/api/vkplay/stop',{method:'POST'});
+    if(info) info.textContent='VK Видео Live остановлен.';
+    await refresh();
+  }catch(e){
+    if(info) info.textContent='Не удалось остановить VK: '+e.message;
+  }
 }
 async function saveStt(){
   try{
-    await api('/api/stt/config',{method:'POST',body:JSON.stringify({
+    const x=await api('/api/stt/config',{method:'POST',body:JSON.stringify({
       model_name:document.getElementById('stt_model').value,
       language:document.getElementById('stt_language').value.trim(),
       input_device:parseInt(document.getElementById('stt_input').value,10),
       chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
       overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
-      compute_type:document.getElementById('stt_compute').value
+      compute_type:document.getElementById('stt_compute').value,
+      device_mode:document.getElementById('stt_device').value
     })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute'].forEach(clearEditableState);
+    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
-    document.getElementById('sttInfo').textContent='STT настройки сохранены.';
+    document.getElementById('sttInfo').textContent=x.restart_required
+      ? 'Настройки сохранены. Перезапускаю STT с выбранным устройством…'
+      : 'STT настройки сохранены.';
+    if(x.restart_required){
+      try{
+        document.getElementById('sttInfo').textContent='Старый STT останавливается, затем запускаю новую конфигурацию…';
+        const deadline=Date.now()+120000;
+        let stopped=false;
+        while(Date.now()<deadline){
+          const state=await api('/api/state');
+          if(!state.stt?.running && !state.stt?.model_loading){
+            stopped=true;
+            break;
+          }
+          await new Promise(resolve=>setTimeout(resolve,300));
+        }
+        if(!stopped){
+          throw new Error('старый STT ещё не остановился');
+        }
+        await api('/api/stt/start',{method:'POST'});
+      }catch(e){
+        document.getElementById('sttInfo').textContent='Настройки сохранены, но STT не перезапустился: '+e.message;
+      }
+    }
     refresh();
   }catch(e){alert(e.message)}
 }
 async function startStt(){
-  document.getElementById('sttInfo').textContent='Запускаю STT…';
+  const info=document.getElementById('sttInfo');
+  if(info) info.textContent='Сохраняю текущие настройки и запускаю STT…';
   try{
-    const x=await api('/api/stt/start',{method:'POST'});
-    document.getElementById('sttInfo').textContent=x.state?.message||'STT запускается…';
+    const x=await api('/api/stt/config',{method:'POST',body:JSON.stringify({
+      model_name:document.getElementById('stt_model').value,
+      language:document.getElementById('stt_language').value.trim(),
+      input_device:parseInt(document.getElementById('stt_input').value,10),
+      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
+      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
+      compute_type:document.getElementById('stt_compute').value,
+      device_mode:document.getElementById('stt_device').value
+    })});
+    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
+    document.getElementById('sttDirty').style.display='none';
+
+    if(x.restart_required){
+      const deadline=Date.now()+120000;
+      let stopped=false;
+      while(Date.now()<deadline){
+        const state=await api('/api/state');
+        if(!state.stt?.running && !state.stt?.model_loading){
+          stopped=true;
+          break;
+        }
+        await new Promise(resolve=>setTimeout(resolve,300));
+      }
+      if(!stopped) throw new Error('старый STT ещё не остановился');
+    }
+
+    const started=await api('/api/stt/start',{method:'POST'});
+    if(info) info.textContent=started.state?.message||'STT запускается…';
     refresh();
   }catch(e){
-    document.getElementById('sttInfo').textContent='Ошибка STT: '+e.message;
+    if(info) info.textContent='Ошибка STT: '+e.message;
     refresh();
   }
 }
 async function stopStt(){
-  try{await api('/api/stt/stop',{method:'POST'});refresh()}catch(e){alert(e.message)}
+  const info=document.getElementById('sttInfo');
+  if(info) info.textContent='Останавливаю STT…';
+  try{
+    await api('/api/stt/stop',{method:'POST'});
+    if(info) info.textContent='STT остановлен.';
+    await refresh();
+  }catch(e){
+    if(info) info.textContent='Не удалось остановить STT: '+e.message;
+  }
 }
 
 </script>

@@ -11,13 +11,12 @@ import shutil
 import threading
 import time
 import urllib.request
-import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
 import sounddevice as sd
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
@@ -63,6 +62,8 @@ class TwitchConfigRequest(BaseModel):
     redirect_uri: str = "http://localhost:8787/auth/twitch/callback"
 
 
+# Kept for API compatibility with older admin pages. The current UI no longer
+# requires per-reward rules; Twitch TTS uses the fixed "Озвучить сообщение" reward.
 class RewardRuleRequest(BaseModel):
     reward_id: str
     reward_title: str
@@ -90,6 +91,7 @@ class STTConfigRequest(BaseModel):
     overlap_seconds: float | None = Field(default=None, ge=0, le=3)
     beam_size: int | None = Field(default=None, ge=1, le=10)
     compute_type: str | None = None
+    device_mode: str | None = None
 
 
 def _is_usable_model(path: Path) -> bool:
@@ -152,16 +154,45 @@ def _read_app_version(root: Path) -> str:
         return "0.0.0-dev"
 
 
-def create_app(root: Path) -> FastAPI:
+def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
+    """Build the app from bundled resources while keeping writable data external.
+
+    In a PyInstaller onedir bundle, bundled resources live under `_internal`,
+    while user data should remain beside the EXE so it survives updates.
+    Source/developer runs keep the historical single-root behavior.
+    """
     app_version = _read_app_version(root)
     app = FastAPI(title="Stream Voice Bot", version=app_version)
     install_log_buffer()
     log.info("Admin backend initialized (version=%s)", app_version)
-    data_dir = root / "data"
+    data_dir = (data_root or root) / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
 
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
+
+    # Keep existing installs on a known live-caption window. Older releases
+    # used experimental 2.0/2.5s + 0.25s settings; the 1.1.11 candidate briefly
+    # moved to 4.0/0.5, which is too slow for live captions. Migrate those
+    # known windows to the restored 2.5/0.25 profile once.
+    if db.get_setting("stt_stable_window_migrated") != "1":
+        saved_chunk = db.get_setting("stt_chunk_seconds", "")
+        saved_overlap = db.get_setting("stt_overlap_seconds", "")
+        if saved_chunk in {"2", "2.0", "2.5", "2.50"} and saved_overlap in {"0.25", ".25"}:
+            db.set_setting("stt_chunk_seconds", "2.5")
+            db.set_setting("stt_overlap_seconds", "0.25")
+        db.set_setting("stt_stable_window_migrated", "1")
+
+    # Existing 1.1.11 candidate installs already have the stable-window marker
+    # set and therefore need a separate one-time migration from 4.0/0.5.
+    if db.get_setting("stt_live_latency_v2_migrated") != "1":
+        saved_chunk = db.get_setting("stt_chunk_seconds", "")
+        saved_overlap = db.get_setting("stt_overlap_seconds", "")
+        if saved_chunk in {"4", "4.0", "4.00"} and saved_overlap in {"0.5", ".5", "0.50"}:
+            db.set_setting("stt_chunk_seconds", "2.5")
+            db.set_setting("stt_overlap_seconds", "0.25")
+        db.set_setting("stt_live_latency_v2_migrated", "1")
+
     db.prune_history(max_rows=50000)
 
     normal_speaker = db.get_setting("normal_speaker", "xenia")
@@ -221,6 +252,16 @@ def create_app(root: Path) -> FastAPI:
                 track["mode"] = "translate"
     except Exception:
         subtitle_tracks = default_subtitle_tracks
+    _SUBTITLE_CREDIT_RE = re.compile(
+        r"(?:\bsubtitles?\s+(?:made|created|provided)\s+by\b|"
+        r"\b(?:субтитры|субтитров)\s+(?:сделаны|сделано|созданы|создано|предоставлены)\b|"
+        r"\bdima\s*torzok\b)",
+        re.IGNORECASE,
+    )
+
+    def _is_bad_subtitle_text(value: str) -> bool:
+        return bool(_SUBTITLE_CREDIT_RE.search(" ".join(str(value or "").split())))
+
     subtitle_state = {
         str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru")}
         for t in subtitle_tracks
@@ -257,17 +298,28 @@ def create_app(root: Path) -> FastAPI:
             pass
 
     def on_subtitle(data: dict):
-        explicit_track = data.get("track_id")
+        text_value = str(data.get("text") or "").strip()
+        if not text_value or _is_bad_subtitle_text(text_value):
+            log.warning("Blocked subtitle hallucination/credit text: %r", text_value)
+            return
+
+        explicit_track = str(data.get("track_id") or "").strip().lower()
+        is_translated = data.get("source") is False
         with subtitle_lock:
-            if explicit_track and explicit_track != "ru" and explicit_track in subtitle_state:
+            if is_translated and explicit_track and explicit_track in subtitle_state:
                 subtitle_state[explicit_track].update({
                     "text": data.get("text", ""),
                     "timestamp": data.get("timestamp", time.time()),
                     "language": data.get("language", explicit_track),
                 })
                 return
-            # Default/source track gets the original STT text.
-            source_tracks = [t for t in subtitle_tracks if t.get("enabled", True) and t.get("mode", "source") == "source"]
+
+            # Original STT text always goes to the enabled source tracks.
+            # Whisper's detected language is metadata and must not control routing.
+            source_tracks = [
+                t for t in subtitle_tracks
+                if t.get("enabled", True) and t.get("mode", "source") == "source"
+            ]
             for t in source_tracks or [{"id": "ru", "language": data.get("language", "ru")}]:
                 tid = str(t.get("id", "ru"))
                 subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": ""})
@@ -304,6 +356,11 @@ def create_app(root: Path) -> FastAPI:
         return
 
     def on_vk_chat(event: dict):
+        # The readonly VK client receives ordinary viewer messages too.
+        # Only ChatBot system messages are allowed to reach the reward parser.
+        if not bool(event.get("is_chatbot")):
+            return
+
         raw_text = (event.get("text") or "").strip()
         if not raw_text:
             return
@@ -338,6 +395,8 @@ def create_app(root: Path) -> FastAPI:
                 QueueItem(text, username, "vkplay-reward", created_at=created_at),
                 profile="normal",
             )
+            vk_status["last_event"] = f"VK награда: {username}"
+            vk_status["message"] = "Награда принята в очередь озвучки."
             log.info("VK reward queued: user=%s", username)
         except Exception as e:
             db.add_history(
@@ -353,51 +412,69 @@ def create_app(root: Path) -> FastAPI:
             log.info("VK: %s", message)
 
     def on_redemption(event: dict):
-        # Only process new/unfulfilled redemptions.
+        # Twitch Channel Points handling is deliberately simple: one reward
+        # named "Озвучить сообщение" feeds its viewer-entered text into TTS.
         if (event.get("status") or "").lower() not in {"", "unfulfilled"}:
             return
+
         redemption_id = event.get("id", "")
         eventsub_id = event.get("_eventsub_message_id")
         reward = event.get("reward", {}) or {}
         reward_id = reward.get("id", "")
-        rule = db.get_reward(reward_id)
+        reward_title = str(reward.get("title") or "").strip()
         username = event.get("user_name", "unknown")
         user_input = (event.get("user_input") or "").strip()
-        redemption_id = event.get("id", "")
 
-        if not rule or not int(rule["enabled"]):
-            # Intentionally leave unconfigured redemptions untouched.
+        twitch_status["last_event"] = (
+            f"Channel Points: {username} → {reward_title or reward_id or 'неизвестная награда'}"
+        )
+
+        if reward_title.casefold() != "озвучить сообщение":
+            twitch_status["message"] = (
+                f"Награда «{reward_title or reward_id}» пропущена. "
+                "Озвучивается только «Озвучить сообщение»."
+            )
+            log.info(
+                "Twitch redemption ignored: reward is not the voice reward; "
+                "user=%s reward=%s (%s)",
+                username, reward_title, reward_id,
+            )
             return
+
         dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
         if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
             return
+
         if not user_input:
-            # When input is configured as required, an empty event is invalid;
-            # don't invent text and don't speak the redemption.
-            if int(rule.get("user_input_required", 1)):
-                asyncio.create_task(
-                    twitch.update_redemption(reward_id, redemption_id, "CANCELED")
-                )
-                return
-            user_input = f"{username} активировал награду «{reward.get('title', rule['reward_title'])}»"
+            twitch_status["message"] = (
+                "Награда «Озвучить сообщение» получена без текста — отменяю."
+            )
+            log.info(
+                "Twitch redemption canceled: missing viewer text; user=%s reward=%s",
+                username, reward_title,
+            )
+            asyncio.create_task(
+                twitch.update_redemption(reward_id, redemption_id, "CANCELED")
+            )
+            return
 
         try:
             item = QueueItem(user_input, username, "twitch-channel-points")
-            history_id = queue.enqueue(item, profile=rule["profile"])
-            if int(rule["auto_fulfill"]):
-                asyncio.create_task(
-                    fulfill_after(history_id, reward_id, redemption_id)
-                )
+            history_id = queue.enqueue(item, profile="normal")
+            twitch_status["message"] = (
+                f"Channel Points: {username} → «Озвучить сообщение» добавлено в очередь."
+            )
+            asyncio.create_task(
+                fulfill_after(history_id, reward_id, redemption_id)
+            )
         except Exception as e:
-            # Do not leave a redemption permanently pending when the local
-            # queue rejects it (for example because the bounded queue is full).
             history_id = db.add_history(
                 username,
                 user_input,
                 "twitch-channel-points",
                 time.strftime("%Y-%m-%dT%H:%M:%S"),
                 status="error",
-                profile=rule["profile"],
+                profile="normal",
             )
             log.exception("Twitch redemption could not be queued: %s", e)
             asyncio.create_task(
@@ -558,7 +635,11 @@ def create_app(root: Path) -> FastAPI:
                 "service_key_saved": secret_store.has("vk_service_key"),
                 "secure_key_saved": secret_store.has("vk_secure_key"),
             },
-            "stt": {**stt.state(), **stt_status},
+            # The service state is authoritative. The callback snapshot may
+            # contain fields from an earlier status event (for example a stale
+            # CUDA device after a failed reload), so never let it overwrite the
+            # live STT state.
+            "stt": {**stt_status, **stt.state()},
             "subtitle": sub,
             "subtitle_tracks": subtitle_tracks,
             "translation": translation_status,
@@ -598,7 +679,17 @@ def create_app(root: Path) -> FastAPI:
         server = getattr(app.state, "server", None)
         if server is None:
             raise HTTPException(503, "Сервер запущен не через штатный launcher")
-        server.should_exit = True
+
+        # Let the HTTP response reach the browser before asking Uvicorn to
+        # shut down. Setting should_exit inline can race the response and make
+        # the browser report a misleading "Failed to fetch".
+        async def stop_server_later():
+            # Give the browser enough time to receive and process the 200 OK
+            # before Uvicorn begins its graceful shutdown.
+            await asyncio.sleep(2.0)
+            server.should_exit = True
+
+        asyncio.create_task(stop_server_later(), name="shutdown-server-later")
         return {"ok": True, "message": "Бот завершает работу…"}
 
     @app.delete("/api/history")
@@ -1021,15 +1112,55 @@ def create_app(root: Path) -> FastAPI:
         subtitle_tracks = clean
         db.set_setting("subtitle_tracks", json.dumps(subtitle_tracks, ensure_ascii=False))
         with subtitle_lock:
+            active_ids = {t["id"] for t in subtitle_tracks}
             for t in subtitle_tracks:
-                subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
-            stale = [k for k in subtitle_state if k not in {t["id"] for t in subtitle_tracks}]
+                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+                state["language"] = t["language"]
+                if not t.get("enabled", True):
+                    state.update({"text": "", "timestamp": 0})
+            stale = [k for k in subtitle_state if k not in active_ids]
             for k in stale:
                 subtitle_state.pop(k, None)
         source_language = db.get_setting("stt_language", "ru") or "ru"
         translation_status["message"] = "Подготовка переводчиков…"
         asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, clean))
         return {"ok": True, "tracks": subtitle_tracks}
+
+    @app.get("/api/subtitles/debug/{track_id}")
+    async def subtitle_track_debug(track_id: str):
+        track_id = str(track_id or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
+            raise HTTPException(400, "Invalid subtitle track id")
+        with subtitle_lock:
+            return {"ok": True, "track_id": track_id, "state": subtitle_state.get(track_id), "tracks": subtitle_tracks}
+
+    @app.post("/api/subtitles/test/{track_id}")
+    async def subtitle_track_test(track_id: str):
+        track_id = str(track_id or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
+            raise HTTPException(400, "Invalid subtitle track id")
+        with subtitle_lock:
+            if track_id not in subtitle_state:
+                raise HTTPException(404, "Subtitle track not found")
+            ts = time.time()
+            subtitle_state[track_id].update({
+                "text": "Тест субтитров ✓",
+                "timestamp": ts,
+                "language": subtitle_state[track_id].get("language", "ru"),
+            })
+        return {"ok": True, "track_id": track_id, "text": "Тест субтитров ✓", "timestamp": ts}
+
+    @app.post("/api/subtitles/test")
+    async def subtitles_test():
+        test_text = "Тест субтитров ✓"
+        ts = time.time()
+        on_subtitle({
+            "source": True,
+            "text": test_text,
+            "language": "ru",
+            "timestamp": ts,
+        })
+        return {"ok": True, "text": test_text, "timestamp": ts}
 
     @app.post("/api/subtitles/prepare")
     async def subtitles_prepare():
@@ -1043,22 +1174,67 @@ def create_app(root: Path) -> FastAPI:
     async def stt_config(req: STTConfigRequest):
         current_chunk = stt.config.chunk_seconds
         current_overlap = stt.config.overlap_seconds
+        if req.device_mode is not None and req.device_mode not in {"auto", "cuda", "cpu"}:
+            raise HTTPException(400, "Unknown STT device mode")
         chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
         overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
         if overlap >= chunk:
             raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
+            was_running = bool(stt.thread and stt.thread.is_alive())
+            previous_model = stt.config.model_name
+            previous_device = stt.config.device_mode
             stt.save_config(**kwargs)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
-        return {"ok": True, "state": stt.state()}
+
+        changed_runtime = (
+            was_running
+            and (
+                previous_model != stt.config.model_name
+                or previous_device != stt.config.device_mode
+            )
+        )
+        if changed_runtime:
+            # Do not silently keep an old CUDA/CPU model after the user saved
+            # a different device/model. Stop the current worker; the UI can
+            # then start the newly selected configuration deterministically.
+            stt.stop()
+
+        return {"ok": True, "restart_required": changed_runtime, "state": stt.state()}
 
     @app.post("/api/stt/start")
     async def stt_start():
         try:
+            # A running worker may still belong to a previous CPU/GPU
+            # configuration (or may be alive after an inference error). In that
+            # case, restart it instead of returning "already works".
+            active = bool(stt.thread and stt.thread.is_alive())
+            runtime_device = stt.runtime_device
+            configured_device = stt.config.device_mode
+            needs_restart = active and (
+                bool(stt.last_error)
+                or (
+                    configured_device in {"cpu", "cuda"}
+                    and runtime_device not in {None, configured_device}
+                )
+            )
+            if needs_restart:
+                stt.stop()
+                deadline = time.monotonic() + 15.0
+                while time.monotonic() < deadline:
+                    if not (stt.thread and stt.thread.is_alive()) and not (
+                        stt.start_thread and stt.start_thread.is_alive()
+                    ):
+                        break
+                    await asyncio.sleep(0.2)
+                if stt.thread and stt.thread.is_alive():
+                    raise HTTPException(409, "Предыдущий STT ещё не остановился")
             stt.start()
-            return {"ok": True, "state": stt.state()}
+            return {"ok": True, "state": stt.state(), "restarted": needs_restart}
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(500, str(e))
 

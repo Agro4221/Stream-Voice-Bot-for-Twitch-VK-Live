@@ -1,0 +1,172 @@
+name: Build Windows EXE candidate
+
+on:
+  push:
+    branches: ["exe-packaging-v1.1.9-release-candidate", "main"]
+  workflow_dispatch:
+
+concurrency:
+  group: exe-build-candidate
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PIP_NO_CACHE_DIR: "1"
+      STREAMVOICEBOT_PFX_BASE64: ${{ secrets.STREAMVOICEBOT_PFX_BASE64 }}
+      STREAMVOICEBOT_PFX_PASSWORD: ${{ secrets.STREAMVOICEBOT_PFX_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download bundled Silero model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force models | Out-Null
+          Invoke-WebRequest -Uri "https://models.silero.ai/models/tts/ru/v5_ru.pt" -OutFile "models\v5_ru.pt"
+          if ((Get-Item "models\v5_ru.pt").Length -lt 1MB) {
+            throw "Silero model download failed."
+          }
+
+      - name: Build portable EXE
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
+
+      - name: Smoke-test packaged EXE
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $releaseRoot = ".\dist_release\StreamVoiceBot_$version"
+          $exe = Resolve-Path (Join-Path $releaseRoot "StreamVoiceBot.exe")
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              Start-Sleep -Seconds 1
+              if ($process.HasExited) {
+                break
+              }
+              try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8787/" -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $ready) {
+              $log = Join-Path $releaseRoot "data\exe_startup.log"
+              if (Test-Path $log) {
+                Write-Host "=== exe_startup.log ==="
+                Get-Content $log -ErrorAction SilentlyContinue
+              }
+              if ($process.HasExited) {
+                throw "Packaged EXE exited before serving admin page. ExitCode=$($process.ExitCode)"
+              }
+              throw "Packaged EXE did not serve admin page on 127.0.0.1:8787 within 60 seconds."
+            }
+            Write-Host "Packaged EXE admin smoke test: OK"
+
+            # Exercise the bundled Silero package far enough to catch hidden
+            # imports that a simple HTTP health check cannot detect.
+            $tts = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8787/api/tts/test?profile=normal" -TimeoutSec 5
+            if (-not $tts.ok) {
+              throw "Packaged EXE TTS test request was rejected."
+            }
+            $ttsReady = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $state = Invoke-RestMethod -Uri "http://127.0.0.1:8787/api/state" -TimeoutSec 2
+                if ($state.model.loaded) {
+                  $ttsReady = $true
+                  $audioError = [string]$state.queue.last_audio_error
+                  if ($audioError -match "No module named 'wave'") {
+                    throw "Packaged EXE is missing Python stdlib module 'wave': $audioError"
+                  }
+                  break
+                }
+              } catch {
+                if ($_.Exception.Message -match "missing Python stdlib module 'wave'") { throw }
+              }
+            }
+            if (-not $ttsReady) {
+              throw "Packaged EXE did not load bundled Silero model during TTS smoke test."
+            }
+            Write-Host "Packaged EXE Silero smoke test: OK"
+
+            $desktop = [Environment]::GetFolderPath("Desktop")
+            $shortcutPath = Join-Path $desktop "Stream Voice Bot.lnk"
+            if (-not (Test-Path $shortcutPath -PathType Leaf)) {
+              throw "Packaged EXE did not create the desktop shortcut on first launch."
+            }
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            $targetPath = [IO.Path]::GetFullPath($shortcut.TargetPath)
+            $expectedPath = [IO.Path]::GetFullPath($exe.Path)
+            if ($targetPath -ne $expectedPath) {
+              throw "Desktop shortcut target mismatch. Expected=$expectedPath Actual=$targetPath"
+            }
+            Write-Host "Packaged EXE desktop shortcut smoke test: OK"
+            # Functional integration checks require real Twitch/VK credentials and
+            # a Windows audio environment, so those are covered by the manual test.
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Clean runtime residue before artifact upload
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $root = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
+          $dataDir = Join-Path $root "data"
+          if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
+          Get-ChildItem $root -Recurse -Force -File |
+            Where-Object { $_.Extension -in @(".log", ".sqlite3", ".db", ".wav", ".part") } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          if (Test-Path (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk")) {
+            Remove-Item (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk") -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Inspect bundle size
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $root = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
+          $total = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum
+          Write-Host ("Bundle size: {0:N2} GB" -f ($total / 1GB))
+          $files = Get-ChildItem $root -Recurse -Force -File
+          Write-Host "File count: $($files.Count)"
+          Write-Host "Files by extension:"
+          $files | Group-Object Extension | Sort-Object Count -Descending | Select-Object -First 20 Count,Name | Format-Table -AutoSize
+          Write-Host "Files by top-level bundle directory:"
+          $files | ForEach-Object {
+            $rel = $_.FullName.Substring($root.Path.Length).TrimStart("\")
+            $top = ($rel -split "\\")[0]
+            [pscustomobject]@{ Top=$top }
+          } | Group-Object Top | Sort-Object Count -Descending | Select-Object Count,Name | Format-Table -AutoSize
+          $files | Sort-Object Length -Descending | Select-Object -First 20 @{Name="GB";Expression={[math]::Round($_.Length/1GB,2)}}, @{Name="Path";Expression={$_.FullName}} | Format-Table -AutoSize
+
+      - name: Upload EXE candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamVoiceBot-windows-candidate
+          path: dist_release/StreamVoiceBot_*
+          if-no-files-found: error
+          retention-days: 7

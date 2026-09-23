@@ -18,7 +18,7 @@ The `v5_ru.pt` model is **not** relicensed under this project's MIT license.
 
 ## PyTorch
 
-Used for local TTS/STT inference.
+Used by the local TTS stack.
 https://github.com/pytorch/pytorch
 
 See the upstream repository for the applicable license and notices.
@@ -36,13 +36,6 @@ https://github.com/PythonistaGuild/TwitchIO
 
 See the upstream repository for the applicable license and notices.
 
-## OBS WebSocket / `obsws-python`
-
-Used for optional OBS control/integration. The OBS WebSocket project is GPL-2.0
-licensed; the Python client has its own package license.
-- https://github.com/obsproject/obs-websocket
-- https://pypi.org/project/obsws-python/
-
 ## `vklive-message-client`
 
 Used by the readonly VK Video Live Node bridge.
@@ -50,6 +43,18 @@ https://www.npmjs.com/package/vklive-message-client
 
 See the package metadata and upstream project for the current license.
 
+## NVIDIA CUDA / cuBLAS / cuDNN runtime
+
+The optional STT GPU mode uses NVIDIA CUDA 12 runtime libraries and cuDNN 9.
+When the required runtime is not found on Windows, the application can download
+a pinned CUDA 12 + cuDNN 9 runtime archive from the Purfview
+whisper-standalone-win project into the user's writable `data/gpu_runtime`
+directory. These NVIDIA binaries are not included in the Git repository.
+
+Upstream references:
+- https://github.com/SYSTRAN/faster-whisper
+- https://github.com/Purfview/whisper-standalone-win/releases/tag/libs
+- https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html
 ## Python audio dependencies
 
 The project also uses NumPy, SciPy, SoundDevice and SoundFile. Their respective

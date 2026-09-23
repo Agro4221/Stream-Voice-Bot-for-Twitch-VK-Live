@@ -1,18 +1,23 @@
 name: Publish GitHub Release
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Build Windows EXE candidate"]
+    types: [completed]
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Read release version
         id: version
@@ -34,6 +39,30 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Download Windows EXE artifact
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          rm -rf release_artifact
+          gh run download "${{ github.event.workflow_run.id }}" \
+            --repo "${{ github.repository }}" \
+            --name StreamVoiceBot-windows-candidate \
+            --dir release_artifact
+          find release_artifact -maxdepth 2 -type f -print
+
+      - name: Package release archive
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          cd release_artifact
+          folder="$(find . -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$folder"
+          zip -r "../StreamVoiceBot_${{ steps.version.outputs.version }}_Windows.zip" "$folder" >/dev/null
+          cd ..
+          sha256sum "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows.zip" > "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows.zip.sha256"
+
       - name: Publish release
         if: steps.existing.outputs.exists != 'true'
         env:
@@ -42,7 +71,20 @@ jobs:
         run: |
           gh release create "v${{ steps.version.outputs.version }}" \
             --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
+            --target "${{ github.event.workflow_run.head_sha }}" \
             --title "Stream Voice Bot v${{ steps.version.outputs.version }}" \
-            --generate-notes \
-            --latest
+            --notes-file .github/RELEASE_NOTES_1.1.11.md \
+            --latest \
+            "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows.zip" \
+            "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows.zip.sha256"
+
+      - name: Update repository description
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh repo edit "${{ github.repository }}" \
+            --description "Local Windows streaming assistant: Twitch + VK Video Live, Silero TTS, faster-whisper STT, OBS subtitles and VB-CABLE." || \
+            echo "Repository description could not be updated by GITHUB_TOKEN; update it once in Settings."
+
