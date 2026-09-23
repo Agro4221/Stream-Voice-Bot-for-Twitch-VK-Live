@@ -258,7 +258,10 @@ class STTService:
             runtime_dir / "cudart64_12.dll",
             runtime_dir / "cudnn64_9.dll",
         )
-        ready = all(path.is_file() and path.stat().st_size > 1_000_000 for path in required)
+        # Some required CUDA libraries are intentionally small:
+        # cudart64_12.dll and cudnn64_9.dll can be well below 1 MB.
+        # Require a non-trivial file instead of an arbitrary 1 MB threshold.
+        ready = all(path.is_file() and path.stat().st_size > 64_000 for path in required)
         self.gpu_runtime_ready = ready
         if ready:
             self._prepare_windows_cuda_dll_search()
