@@ -116,6 +116,15 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("NVIDIA cuBLAS для CUDA 12", stt)
         self.assertIn("def _prepare_windows_cuda_dll_search", stt)
 
+    def test_stt_status_does_not_report_stale_device(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn('"device": self.runtime_device if (self.thread and self.thread.is_alive()) else None', stt)
+        self.assertIn("self.runtime_device = None", stt)
+        self.assertIn('last_error=f"{type(e).__name__}: {e}"', stt)
+        self.assertIn("очень низкий уровень сигнала", web)
+        self.assertIn('disabled><option>float16</option><option>int8</option>', web)
+
     def test_stt_runtime_diagnostics_and_restart_contract(self):
         stt = self.read("stream_voice_bot/stt.py")
         app = self.read("stream_voice_bot/app.py")
