@@ -6,10 +6,8 @@ import sys
 import threading
 import re
 import time
-import hashlib
 import shutil
 import subprocess
-import tempfile
 import urllib.request
 from collections import deque
 from dataclasses import dataclass
@@ -217,6 +215,31 @@ class STTService:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         self.gpu_runtime_dir = runtime_dir
         return runtime_dir
+
+    def _nvidia_gpu_present(self) -> bool:
+        """Detect a real NVIDIA GPU/driver without loading CUDA DLLs."""
+        candidates = []
+        command = shutil.which("nvidia-smi")
+        if command:
+            candidates.append(command)
+        if sys.platform == "win32":
+            system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe"
+            if system32.is_file():
+                candidates.append(str(system32))
+        for command in candidates:
+            try:
+                proc = subprocess.run(
+                    [command, "-L"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if proc.returncode == 0 and any(line.strip() for line in proc.stdout.splitlines()):
+                    return True
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return False
 
     @staticmethod
     def _gpu_runtime_expected() -> tuple[str, int]:
@@ -520,15 +543,19 @@ class STTService:
             self._emit(
                 running=False,
                 model_loading=True,
-                message="Проверяю NVIDIA CUDA перед загрузкой STT модели…",
+                message="Проверяю NVIDIA GPU/драйвер перед загрузкой STT…",
             )
-            self._emit(
-                running=False,
-                model_loading=True,
-                loading_phase="cuda-runtime",
-                message="Проверяю/устанавливаю локальный GPU runtime для STT…",
-            )
-            self._ensure_gpu_runtime()
+            if not self._nvidia_gpu_present():
+                raise RuntimeError(
+                    "NVIDIA GPU/драйвер не обнаружен через nvidia-smi; "
+                    "GPU runtime не скачивается."
+                )
+            if not self._gpu_runtime_is_ready():
+                self._set_loading_phase(
+                    "cuda-runtime",
+                    "NVIDIA GPU найдена; подготавливаю GPU runtime для STT…",
+                )
+                self._ensure_gpu_runtime()
             self._check_cuda_runtime()
             self._emit(
                 running=False,

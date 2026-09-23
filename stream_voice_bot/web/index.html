@@ -248,7 +248,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA; если локального GPU runtime нет, он один раз автоматически скачивается и сохраняется в data/gpu_runtime. При неудаче приложение переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер. Первый GPU запуск может скачать около 849 МБ.</div>
+  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала проверяет наличие NVIDIA GPU, затем при необходимости один раз скачивает GPU runtime в data/gpu_runtime и пробует CUDA. Если GPU недоступна, используется CPU без скачивания сотен мегабайт. Первый GPU запуск может скачать около 849 МБ.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
   <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
   <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
