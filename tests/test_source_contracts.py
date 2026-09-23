@@ -187,7 +187,6 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('mode not in {"auto", "cuda", "cpu"}', src)
         self.assertIn('device="cuda"', src)
         self.assertIn('device="cpu"', src)
-        self.assertIn('self.loaded_model_key = (str(self.config.model_name), mode)', src)
         self.assertIn('self.model is not None and self.loaded_model_key != desired_key', src)
         self.assertIn("def _should_skip_segment", src)
         self.assertIn("_HALLUCINATION_CREDIT_RE", src)
@@ -201,6 +200,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('requested_mode == "auto"', stt)
         self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cpu")', stt)
         self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cuda")', stt)
+        self.assertIn('loaded_model, loaded_backend = self.loaded_model_key', stt)
 
 
     def test_stt_applies_conservative_gain_to_quiet_input(self):
