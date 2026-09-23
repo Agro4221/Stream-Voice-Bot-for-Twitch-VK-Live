@@ -233,6 +233,16 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("URLSearchParams(location.search).get('debug')==='1'", subtitles)
 
 
+    def test_subtitle_credit_hallucinations_are_blocked_end_to_end(self):
+        app = self.read("stream_voice_bot/app.py")
+        subtitles = self.read("stream_voice_bot/web/subtitles.html")
+        self.assertIn("_is_bad_subtitle_text", app)
+        self.assertIn(r"\\bdima\\s*torzok\\b", app)
+        self.assertIn("if not text_value or _is_bad_subtitle_text(text_value)", app)
+        self.assertIn("const blocked=", subtitles)
+        self.assertIn("dima\\s*torzok", subtitles)
+
+
 
 if __name__ == "__main__":
     unittest.main()
