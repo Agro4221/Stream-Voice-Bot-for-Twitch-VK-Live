@@ -612,10 +612,12 @@ async function refresh(){
     writeServerValue('stt_input', s.stt.input_device===null || s.stt.input_device===undefined ? '' : s.stt.input_device);
 
     const sttFields={
-      stt_model:s.stt.model||'large-v3-turbo',
+      stt_model:s.stt.model||'small',
       stt_language:s.stt.language||'ru',
-      stt_chunk:s.stt.chunk_seconds||2.5,
-      stt_overlap:s.stt.overlap_seconds??0.25,
+      stt_min_speech:s.stt.min_speech_seconds??0.30,
+      stt_silence:s.stt.silence_seconds??0.65,
+      stt_max_utterance:s.stt.max_utterance_seconds??7.0,
+      stt_vad:s.stt.vad_threshold??0.008,
       stt_compute:s.stt.compute_type||'float16',
       stt_device:s.stt.device_mode||'auto'
     };
@@ -953,7 +955,7 @@ async function saveStt(){
       compute_type:document.getElementById('stt_compute').value,
       device_mode:document.getElementById('stt_device').value
     })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
+    ['stt_model','stt_language','stt_input','stt_min_speech','stt_silence','stt_max_utterance','stt_vad','stt_device','stt_compute'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
     document.getElementById('sttInfo').textContent=x.restart_required
       ? 'Настройки сохранены. Перезапускаю STT с выбранным устройством…'
