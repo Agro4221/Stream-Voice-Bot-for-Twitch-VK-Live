@@ -13,6 +13,7 @@ from typing import Callable
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
+import ctranslate2
 from scipy.signal import resample_poly
 
 
@@ -173,6 +174,18 @@ class STTService:
                 message=f"Изменение ({reason_text}) STT применится при следующем запуске STT.",
             )
 
+    def _check_cuda_runtime(self):
+        """Fail fast when the NVIDIA runtime is not usable."""
+        self._prepare_windows_cuda_dll_search()
+        count = int(ctranslate2.get_cuda_device_count())
+        if count < 1:
+            raise RuntimeError("NVIDIA CUDA не обнаружена через CTranslate2.")
+        supported = ctranslate2.get_supported_compute_types("cuda", 0)
+        if "float16" not in supported:
+            raise RuntimeError(
+                "NVIDIA CUDA обнаружена, но FP16 не поддерживается CTranslate2 на GPU 0."
+            )
+
     def _prepare_windows_cuda_dll_search(self):
         if sys.platform != "win32":
             return
@@ -239,6 +252,12 @@ class STTService:
             self.loaded_model_key = (str(self.config.model_name), mode)
 
         def load_cuda():
+            self._emit(
+                running=False,
+                model_loading=True,
+                message="Проверяю NVIDIA CUDA перед загрузкой STT модели…",
+            )
+            self._check_cuda_runtime()
             self._emit(
                 running=False,
                 model_loading=True,
