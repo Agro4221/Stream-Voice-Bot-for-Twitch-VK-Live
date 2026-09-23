@@ -37,6 +37,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn("exclude_binaries=True", src)
         self.assertIn('contents_directory="_internal"', src)
         self.assertIn("collect_dynamic_libs(package)", src)
+        self.assertIn('excludes=["include/**"]', src)
         self.assertIn('"torch",', src)
         self.assertNotIn("collect_all", src)
         self.assertNotIn("StreamVoiceBotCore", src)
