@@ -232,7 +232,8 @@ class STTService:
         self._emit(
             running=False,
             model_loading=True,
-            message=f"Загрузка STT: {self.config.model_name}… Первый запуск может занять несколько минут.",
+            message=(f"Загрузка STT: {self.config.model_name}… "
+                         "При первом запуске модель может скачать около 1,6 ГБ; это может занять время."),
             last_error="",
         )
 
