@@ -136,7 +136,7 @@ class StabilityDatabaseTests(unittest.TestCase):
                 self.assertEqual(rate, 16000)
                 self.assertFalse(stream.closed)
                 self.assertTrue(stream.kwargs["extra_settings"].auto_convert)
-                self.assertEqual(stream.kwargs["channels"], 1)
+                self.assertEqual(stream.kwargs["channels"], 2)
                 stream.close()
             finally:
                 stt_module.sd = real_sd
