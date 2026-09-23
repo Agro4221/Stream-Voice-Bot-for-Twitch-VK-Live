@@ -513,7 +513,11 @@ async function refresh(){
     const st=document.getElementById('sttStatus');
     if(s.stt.model_loading){
       const loadingSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
-      st.textContent='STT: загрузка · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'')+(loadingSeconds>=10?' · '+loadingSeconds+' с':'');
+      const progress=Number(s.stt.loading_progress);
+      const rate=Number(s.stt.loading_rate_mbps);
+      const progressText=Number.isFinite(progress) && progress>0 ? ' · '+progress.toFixed(0)+'%' : '';
+      const rateText=Number.isFinite(rate) && rate>0 ? ' · '+rate.toFixed(1)+' МБ/с' : '';
+      st.textContent='STT: загрузка · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'')+progressText+rateText+(loadingSeconds>=10?' · '+loadingSeconds+' с':'');
       st.className='pill status-pending';
     } else if(s.stt.running){
       st.textContent='STT: работает · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'');
