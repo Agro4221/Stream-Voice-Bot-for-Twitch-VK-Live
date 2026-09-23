@@ -250,7 +250,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">STT v2 сначала ждёт речь лёгким VAD и только после паузы отправляет готовую фразу в Whisper. В тишине Whisper не запускается, очередь фраз ограничена двумя элементами, а при остановке модель выгружается из памяти. Рекомендуется <b>small</b> или <b>base</b> для стрима.</div>
+  <div class="small" style="margin-top:8px">STT v2 сначала ждёт речь лёгким VAD и только после паузы отправляет готовую фразу в Whisper. В тишине Whisper не запускается, очередь фраз ограничена двумя элементами, а при остановке модель выгружается из памяти. Рекомендуется <b>small</b> или <b>base</b> для стрима. В режиме «Авто» сначала проверяется наличие NVIDIA GPU; GPU runtime хранится в <code>data/gpu_runtime</code> и скачивается один раз (~849 МБ).</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
   <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
   <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
