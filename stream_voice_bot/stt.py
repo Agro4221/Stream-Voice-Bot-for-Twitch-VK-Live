@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 import threading
 import re
@@ -172,6 +173,30 @@ class STTService:
                 message=f"Изменение ({reason_text}) STT применится при следующем запуске STT.",
             )
 
+    def _prepare_windows_cuda_dll_search(self):
+        if sys.platform != "win32":
+            return
+        candidates = []
+        for env_name in ("CUDA_PATH", "CUDA_PATH_V12_8", "CUDA_PATH_V12_6", "CUDA_PATH_V12_4"):
+            value = os.environ.get(env_name)
+            if value:
+                candidates.append(Path(value) / "bin")
+        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        cuda_root = Path(program_files) / "NVIDIA GPU Computing Toolkit" / "CUDA"
+        if cuda_root.is_dir():
+            candidates.extend(sorted(cuda_root.glob("v12.*\\bin"), reverse=True))
+        for dll_dir in candidates:
+            if not dll_dir.is_dir():
+                continue
+            dll_dir_text = str(dll_dir)
+            path_value = os.environ.get("PATH", "")
+            if dll_dir_text.casefold() not in {p.casefold() for p in path_value.split(os.pathsep) if p}:
+                os.environ["PATH"] = dll_dir_text + os.pathsep + path_value
+            try:
+                os.add_dll_directory(dll_dir_text)
+            except (AttributeError, OSError):
+                pass
+
     def _load_model(self):
         self.model_loading_started_at = self.model_loading_started_at or time.monotonic()
         requested_mode = str(self.config.device_mode or "auto").strip().lower()
@@ -188,6 +213,8 @@ class STTService:
             self.loaded_model_key = None
 
         mode = requested_mode
+        if mode in {"auto", "cuda"}:
+            self._prepare_windows_cuda_dll_search()
 
         self._emit(
             running=False,
