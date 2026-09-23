@@ -234,12 +234,14 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>STT / Субтитры</h2><div class="small">STT опционален; настройки не сбрасываются автообновлением.</div></div><span id="sttDirty" class="pill" style="display:none">Есть несохранённые изменения</span></div>
   <div class="row">
     <div class="field"><label>Модель</label><select id="stt_model">
-      <option>large-v3-turbo</option><option>large-v3</option><option>medium</option><option>small</option>
+      <option>base</option><option>small</option><option>medium</option><option>large-v3-turbo</option>
     </select></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
+    <div class="field"><label>Минимум речи, сек</label><input id="stt_min_speech" type="number" min=".1" max="2" step=".05" value=".30"></div>
+    <div class="field"><label>Тишина, сек</label><input id="stt_silence" type="number" min=".2" max="3" step=".05" value=".65"></div>
+    <div class="field"><label>Макс. фраза, сек</label><input id="stt_max_utterance" type="number" min="1" max="15" step=".5" value="7"></div>
+    <div class="field"><label>Порог VAD</label><input id="stt_vad" type="number" min=".0005" max=".2" step=".0005" value=".008"></div>
     <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">GPU (NVIDIA CUDA)</option><option value="cpu">CPU int8</option></select></div>
     <div class="field"><label>Compute (авто)</label><select id="stt_compute" disabled><option>float16</option><option>int8</option></select></div>
   </div>
@@ -248,7 +250,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала проверяет наличие NVIDIA GPU, затем при необходимости один раз скачивает GPU runtime в data/gpu_runtime и пробует CUDA. Если GPU недоступна, используется CPU без скачивания сотен мегабайт. Первый GPU запуск может скачать около 849 МБ.</div>
+  <div class="small" style="margin-top:8px">STT v2 сначала ждёт речь лёгким VAD и только после паузы отправляет готовую фразу в Whisper. В тишине Whisper не запускается, очередь фраз ограничена двумя элементами, а при остановке модель выгружается из памяти. Рекомендуется <b>small</b> или <b>base</b> для стрима.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
   <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
   <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
@@ -911,7 +913,7 @@ function clearEditableState(id){
   'vk_channel',
   'twitch_id',
   'normal_speaker','normal_volume','loud_speaker','loud_volume','speed','max_chars',
-  'stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute',
+  'stt_model','stt_language','stt_input','stt_min_speech','stt_silence','stt_max_utterance','stt_vad','stt_compute',
   'device'
 ].forEach(bindEditableState);
 
@@ -944,8 +946,10 @@ async function saveStt(){
       model_name:document.getElementById('stt_model').value,
       language:document.getElementById('stt_language').value.trim(),
       input_device:parseInt(document.getElementById('stt_input').value,10),
-      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
-      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
+      min_speech_seconds:parseFloat(document.getElementById('stt_min_speech').value),
+      silence_seconds:parseFloat(document.getElementById('stt_silence').value),
+      max_utterance_seconds:parseFloat(document.getElementById('stt_max_utterance').value),
+      vad_threshold:parseFloat(document.getElementById('stt_vad').value),
       compute_type:document.getElementById('stt_compute').value,
       device_mode:document.getElementById('stt_device').value
     })});
@@ -986,8 +990,10 @@ async function startStt(){
       model_name:document.getElementById('stt_model').value,
       language:document.getElementById('stt_language').value.trim(),
       input_device:parseInt(document.getElementById('stt_input').value,10),
-      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
-      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
+      min_speech_seconds:parseFloat(document.getElementById('stt_min_speech').value),
+      silence_seconds:parseFloat(document.getElementById('stt_silence').value),
+      max_utterance_seconds:parseFloat(document.getElementById('stt_max_utterance').value),
+      vad_threshold:parseFloat(document.getElementById('stt_vad').value),
       compute_type:document.getElementById('stt_compute').value,
       device_mode:document.getElementById('stt_device').value
     })});
