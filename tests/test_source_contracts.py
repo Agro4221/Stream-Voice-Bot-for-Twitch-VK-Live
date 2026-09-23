@@ -99,6 +99,17 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('@app.get("/api/logs")', app)
         self.assertIn('@app.post("/api/logs/clear")', app)
 
+    def test_stt_status_state_is_authoritative(self):
+        app = self.read("stream_voice_bot/app.py")
+        self.assertIn('"stt": {**stt_status, **stt.state()}', app)
+        self.assertIn("The service state is authoritative.", app)
+
+    def test_stt_gpu_error_mentions_missing_cublas(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("cublas64_12.dll", stt)
+        self.assertIn("NVIDIA cuBLAS для CUDA 12", stt)
+        self.assertIn("def _prepare_windows_cuda_dll_search", stt)
+
     def test_stt_source_subtitles_are_not_routed_by_detected_language(self):
         stt = self.read("stream_voice_bot/stt.py")
         app = self.read("stream_voice_bot/app.py")
