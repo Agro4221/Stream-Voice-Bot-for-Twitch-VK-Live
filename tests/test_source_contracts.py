@@ -203,6 +203,16 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cuda")', stt)
 
 
+    def test_stt_applies_conservative_gain_to_quiet_input(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("self.input_gain = 1.0", stt)
+        self.assertIn("gain = min(12.0", stt)
+        self.assertIn('"threshold": 0.35', stt)
+        self.assertIn('"min_silence_duration_ms": 300', stt)
+        self.assertIn("автоусиление x", web)
+
+
 
 if __name__ == "__main__":
     unittest.main()
