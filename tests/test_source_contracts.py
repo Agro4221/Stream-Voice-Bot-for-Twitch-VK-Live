@@ -41,6 +41,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("127.0.0.1:8787", hidden_launcher)
 
         self.assertIn("function queueAction(action)", web)
+        self.assertIn("const cleared=Number(result.cleared||0)", web)
+        self.assertIn("Очередь очищена: убрано", web)
         self.assertIn("method:'POST'", web)
         self.assertIn('onclick="shutdownBot()"', web)
         self.assertIn("Работает", web)
