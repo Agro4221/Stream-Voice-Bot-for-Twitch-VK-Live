@@ -322,10 +322,18 @@ class STTService:
         if requested_mode not in {"auto", "cuda", "cpu"}:
             requested_mode = "auto"
             self.config.device_mode = requested_mode
-        desired_key = (str(self.config.model_name), requested_mode)
-        if self.model is not None and self.loaded_model_key == desired_key:
-            return
-        if self.model is not None and self.loaded_model_key != desired_key:
+        desired_model = str(self.config.model_name)
+        if self.model is not None and self.loaded_model_key:
+            loaded_model, loaded_backend = self.loaded_model_key
+            mode_matches = (
+                requested_mode == "auto"
+                or requested_mode == loaded_backend
+            )
+            if loaded_model == desired_model and mode_matches:
+                self.runtime_device = loaded_backend
+                self.runtime_compute_type = "float16" if loaded_backend == "cuda" else "int8"
+                return
+        if self.model is not None:
             self.model = None
             self.runtime_device = None
             self.runtime_compute_type = None
@@ -361,7 +369,7 @@ class STTService:
             )
             self.runtime_device = "cpu"
             self.runtime_compute_type = "int8"
-            self.loaded_model_key = (str(self.config.model_name), mode)
+            self.loaded_model_key = (str(self.config.model_name), "cpu")
 
         def load_cuda():
             self._emit(
@@ -387,7 +395,7 @@ class STTService:
             )
             self.runtime_device = "cuda"
             self.runtime_compute_type = "float16"
-            self.loaded_model_key = (str(self.config.model_name), mode)
+            self.loaded_model_key = (str(self.config.model_name), "cuda")
 
         try:
             if mode == "cpu":
