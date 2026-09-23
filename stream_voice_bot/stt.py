@@ -542,8 +542,11 @@ class STTService:
                         detected_language = getattr(info, "language", self.config.language) or self.config.language
                         ts = time.time()
                         self.last_text = text
+                        # The detected language is metadata only. Do not route
+                        # source STT text by language: Whisper can mis-detect the
+                        # language, and a non-source track such as "en" may be disabled.
                         self.on_subtitle({
-                            "track_id": "ru" if detected_language.startswith("ru") else detected_language.lower(),
+                            "source": True,
                             "text": text,
                             "start": start,
                             "end": end,
@@ -574,6 +577,7 @@ class STTService:
                                         )
                                         if translated:
                                             self.on_subtitle({
+                                                "source": False,
                                                 "track_id": track_id,
                                                 "text": translated,
                                                 "start": segment_start,
