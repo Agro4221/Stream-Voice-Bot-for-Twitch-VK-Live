@@ -229,7 +229,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("self.utterance_q: queue.Queue[tuple[np.ndarray, float, float]] = queue.Queue(maxsize=2)", stt)
         self.assertIn("self.stop_event.set()", stt)
         self.assertIn("self._release_model()", stt)
-        self.assertIn("self.vad_state = "speech"", stt)
+        self.assertIn('self.vad_state = "speech"', stt)
 
     def test_stt_can_install_local_cuda_runtime_on_demand(self):
         stt = self.read("stream_voice_bot/stt.py")
