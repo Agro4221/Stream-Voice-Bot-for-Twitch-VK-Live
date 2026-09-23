@@ -289,17 +289,23 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             pass
 
     def on_subtitle(data: dict):
-        explicit_track = data.get("track_id")
+        explicit_track = str(data.get("track_id") or "").strip().lower()
+        is_translated = data.get("source") is False
         with subtitle_lock:
-            if explicit_track and explicit_track != "ru" and explicit_track in subtitle_state:
+            if is_translated and explicit_track and explicit_track in subtitle_state:
                 subtitle_state[explicit_track].update({
                     "text": data.get("text", ""),
                     "timestamp": data.get("timestamp", time.time()),
                     "language": data.get("language", explicit_track),
                 })
                 return
-            # Default/source track gets the original STT text.
-            source_tracks = [t for t in subtitle_tracks if t.get("enabled", True) and t.get("mode", "source") == "source"]
+
+            # Original STT text always goes to the enabled source tracks.
+            # Whisper's detected language is metadata and must not control routing.
+            source_tracks = [
+                t for t in subtitle_tracks
+                if t.get("enabled", True) and t.get("mode", "source") == "source"
+            ]
             for t in source_tracks or [{"id": "ru", "language": data.get("language", "ru")}]:
                 tid = str(t.get("id", "ru"))
                 subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": ""})
