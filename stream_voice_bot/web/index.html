@@ -934,7 +934,7 @@ async function saveStt(){
         let stopped=false;
         while(Date.now()<deadline){
           const state=await api('/api/state');
-          if(!state.stt?.running && !state.stt?.model_loading && !state.stt?.audio_last_callback_at){
+          if(!state.stt?.running && !state.stt?.model_loading){
             stopped=true;
             break;
           }
