@@ -241,7 +241,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
     <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
     <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">GPU (NVIDIA CUDA)</option><option value="cpu">CPU int8</option></select></div>
-    <div class="field"><label>Compute</label><select id="stt_compute"><option>float16</option><option>int8_float16</option></select></div>
+    <div class="field"><label>Compute (авто)</label><select id="stt_compute" disabled><option>float16</option><option>int8</option></select></div>
   </div>
   <div class="actions" style="margin-top:10px">
     <button onclick="saveStt()">Сохранить STT</button>
@@ -509,6 +509,12 @@ async function refresh(){
       tw.className='pill status-bad';
     }
     const st=document.getElementById('sttStatus');
+    const computeEl=document.getElementById('stt_compute');
+    if(computeEl){
+      const actualCompute=String(s.stt.runtime_compute_type||'').trim() ||
+        ((s.stt.device_mode||'auto')==='cpu' ? 'int8' : 'float16');
+      computeEl.value=actualCompute;
+    }
     if(s.stt.model_loading){
       const loadingSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
       const progress=Number(s.stt.loading_progress);
@@ -517,12 +523,12 @@ async function refresh(){
       const rateText=Number.isFinite(rate) && rate>0 ? ' · '+rate.toFixed(1)+' МБ/с' : '';
       st.textContent='STT: загрузка · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'')+progressText+rateText+(loadingSeconds>=10?' · '+loadingSeconds+' с':'');
       st.className='pill status-pending';
+    } else if(s.stt.last_error){
+      st.textContent='STT: ошибка · '+(s.stt.device||s.stt.configured_device||'');
+      st.className='pill status-bad';
     } else if(s.stt.running){
       st.textContent='STT: работает · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'');
       st.className='pill status-good';
-    } else if(s.stt.last_error){
-      st.textContent='STT: ошибка';
-      st.className='pill status-bad';
     } else {
       st.textContent='STT: остановлен';
       st.className='pill status-bad';
@@ -543,7 +549,10 @@ async function refresh(){
       const attempts=Number(s.stt.transcribe_attempts||0);
       const duration=Number(s.stt.last_transcribe_duration||0);
       const result=String(s.stt.last_transcribe_result||'ещё не запускалось');
-      sttAudioInfo.textContent='Микрофон: RMS '+rms.toFixed(3)+' · пик '+peak.toFixed(3)+' · блоков '+blocks+' · окон STT '+attempts+' · последнее окно '+duration.toFixed(1)+' с · '+result;
+      const signalWarning=(blocks>100 && rms<0.005 && peak<0.02)
+        ? ' · ⚠ очень низкий уровень сигнала — проверь микрофон/громкость Windows'
+        : '';
+      sttAudioInfo.textContent='Микрофон: RMS '+rms.toFixed(3)+' · пик '+peak.toFixed(3)+' · блоков '+blocks+' · окон STT '+attempts+' · последнее окно '+duration.toFixed(1)+' с · '+result+signalWarning;
     }
     if(!document.getElementById('sttInfo').matches(':focus')){
       const sttMessage=s.stt.message||'';
