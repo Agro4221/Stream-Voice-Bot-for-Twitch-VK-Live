@@ -562,7 +562,8 @@ async function refresh(){
       const signalWarning=(blocks>100 && rms<0.005 && peak<0.02)
         ? ' · ⚠ очень низкий уровень сигнала — проверь микрофон/громкость Windows'
         : '';
-      sttAudioInfo.textContent='Микрофон: RMS '+rms.toFixed(3)+' · пик '+peak.toFixed(3)+' · блоков '+blocks+' · окон STT '+attempts+' · последнее окно '+duration.toFixed(1)+' с · '+result+signalWarning;
+      const gain=Number(s.stt.input_gain||1);
+      sttAudioInfo.textContent='Микрофон: RMS '+rms.toFixed(3)+' · пик '+peak.toFixed(3)+' · автоусиление x'+gain.toFixed(1)+' · блоков '+blocks+' · окон STT '+attempts+' · последнее окно '+duration.toFixed(1)+' с · '+result+signalWarning;
     }
     if(!document.getElementById('sttInfo').matches(':focus')){
       const sttMessage=s.stt.message||'';
