@@ -83,6 +83,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('db.claim_event("twitch:" + str(dedupe_id))', app)
         self.assertIn("Normal Twitch chat is intentionally ignored", app)
         self.assertIn("from .models import QueueItem, utc_now", app)
+        self.assertIn("import httpx", app)
         self.assertIn('QueueItem(text, username, "vkplay-reward", created_at=created_at)', app)
         self.assertIn("parse_vk_reward_announcement(raw_text)", app)
         self.assertIn('Ordinary viewer messages are never TTS input.', app)
@@ -252,6 +253,8 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("cublas64_12.dll", stt)
         self.assertIn("cudnn64_9.dll", stt)
         self.assertIn('["tar", "-xf"', stt)
+        self.assertIn("CREATE_NO_WINDOW", stt)
+        self.assertIn('tar_kwargs["creationflags"]', stt)
         self.assertIn("data/gpu_runtime", web)
         self.assertIn("849 МБ", web)
 
