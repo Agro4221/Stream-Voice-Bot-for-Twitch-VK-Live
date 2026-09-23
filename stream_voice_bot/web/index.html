@@ -37,7 +37,7 @@ button.secondary{background:#303746}
 .small{font-size:12px;color:var(--muted)}
 .button-link{display:inline-block;text-decoration:none;border-radius:9px;padding:9px 12px;background:#303746;color:white}.button-link:hover{filter:brightness(1.12)}
 .stat{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
-.pill{padding:4px 8px;border-radius:999px;background:var(--panel2)}
+.pill{padding:4px 8px;border-radius:999px;background:var(--panel2);border:1px solid transparent}.status-good{background:#183126;border-color:#2e6b4d;color:var(--ok)}.status-bad{background:#361d22;border-color:#7c3641;color:#ff8a8a}.status-pending{background:#362b1b;border-color:#765d2c;color:#e4c285}
 .current{background:#18263c;border-color:#34527f}
 .queue-item{border:1px solid var(--border);padding:9px;border-radius:9px;margin-top:7px}
 .history{max-height:450px;overflow:auto}
@@ -69,9 +69,9 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 <section class="card wide">
   <h2>Интеграция</h2>
   <div class="row">
-    <span id="twitchStatus" class="pill">Twitch: не подключён</span>
-    <span id="vkStatusTop" class="pill">VK Видео Live: не подключён</span>
-     <span id="sttStatus" class="pill">STT: остановлен</span>
+    <span id="twitchStatus" class="pill status-bad">Twitch: не подключён</span>
+    <span id="vkStatusTop" class="pill status-bad">VK Видео Live: не подключён</span>
+     <span id="sttStatus" class="pill status-bad">STT: остановлен</span>
   </div>
   <div class="notice" style="margin-top:10px">
     Субтитры настраиваются ниже. Для каждой дорожки свой OBS URL: <code>/subtitles/ID</code>.
@@ -205,7 +205,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <h2>VK Видео Live</h2>
   <div class="row">
     <div class="field" style="flex:1"><label>Канал VK Видео Live</label><input id="vk_channel" type="text" style="width:100%" placeholder="логин канала или https://live.vkvideo.ru/username"></div>
-    <span id="vkStatus" class="pill">VK Видео Live: не настроен</span>
+    <span id="vkStatus" class="pill status-bad">VK Видео Live: не настроен</span>
   </div>
   <div class="row" style="margin-top:8px">
     <div class="field" style="flex:1"><label>VK_SERVICE_KEY</label><input id="vk_service" type="password" style="width:100%" autocomplete="new-password" placeholder="не вводить повторно после сохранения"></div>
@@ -474,7 +474,9 @@ async function refresh(){
     const vk=document.getElementById('vkStatus');
     const vkTop=document.getElementById('vkStatusTop');
     const vkText=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
-    vk.textContent=vkText; vkTop.textContent=vkText;
+    const vkClass=s.vkplay.connected ? 'pill status-good' : 'pill status-bad';
+    vk.textContent=vkText; vk.className=vkClass;
+    vkTop.textContent=vkText; vkTop.className=vkClass;
     document.getElementById('vkInfo').textContent=
       [s.vkplay.message||'', s.vkplay.last_event ? 'Последнее событие: '+s.vkplay.last_event : '']
       .filter(Boolean).join(' · ');
@@ -485,27 +487,33 @@ async function refresh(){
     }
 
     const tw=document.getElementById('twitchStatus');
-    if(!s.twitch.client_configured){
+    if(s.twitch.connected){
+      tw.textContent='Twitch: '+(s.twitch.user.login||'подключён')+' · EventSub ✓';
+      tw.className='pill status-good';
+    } else if(!s.twitch.client_configured){
       tw.textContent='Twitch: не настроен';
+      tw.className='pill status-bad';
     } else if(!s.twitch.authorized){
       tw.textContent='Twitch: не авторизован';
+      tw.className='pill status-bad';
     } else {
-      tw.textContent='Twitch: '+(s.twitch.user.login||'авторизован')+(s.twitch.connected?' · EventSub ✓':' · EventSub не запущен');
+      tw.textContent='Twitch: '+(s.twitch.user.login||'авторизован')+' · EventSub не запущен';
+      tw.className='pill status-bad';
     }
     const st=document.getElementById('sttStatus');
     if(s.stt.model_loading){
       const loadingSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
       st.textContent='STT: загрузка · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'')+(loadingSeconds>=10?' · '+loadingSeconds+' с':'');
-      st.className='pill';
+      st.className='pill status-pending';
     } else if(s.stt.running){
       st.textContent='STT: работает · '+(s.stt.model||'')+(s.stt.device?' · '+s.stt.device:'');
-      st.className='pill oktext';
+      st.className='pill status-good';
     } else if(s.stt.last_error){
       st.textContent='STT: ошибка';
-      st.className='pill';
+      st.className='pill status-bad';
     } else {
       st.textContent='STT: остановлен';
-      st.className='pill';
+      st.className='pill status-bad';
     }
     document.getElementById('twitchInfo').textContent=
       [s.twitch.message||'', s.twitch.last_event ? 'Последнее событие: '+s.twitch.last_event : '']
