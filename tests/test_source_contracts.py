@@ -260,6 +260,13 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('runtime_dir = Path(data_root) / "gpu_runtime"', stt)
 
 
+    def test_gpu_runtime_path_is_added_to_windows_dll_search(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("local_runtime = self._gpu_runtime_path()", stt)
+        self.assertIn("candidates.append(local_runtime)", stt)
+        self.assertIn("runtime_dir = Path(data_root) / \"gpu_runtime\"", stt)
+
+
 
 if __name__ == "__main__":
     unittest.main()
