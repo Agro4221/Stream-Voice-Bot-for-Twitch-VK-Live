@@ -205,7 +205,6 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <h2>VK Видео Live</h2>
   <div class="row">
     <div class="field" style="flex:1"><label>Канал VK Видео Live</label><input id="vk_channel" type="text" style="width:100%" placeholder="логин канала или https://live.vkvideo.ru/username"></div>
-    <span id="vkStatus" class="pill status-bad">VK Видео Live: не настроен</span>
   </div>
   <div class="row" style="margin-top:8px">
     <div class="field" style="flex:1"><label>VK_SERVICE_KEY</label><input id="vk_service" type="password" style="width:100%" autocomplete="new-password" placeholder="не вводить повторно после сохранения"></div>
@@ -252,6 +251,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA и при недоступности автоматически переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер, CUDA 12.x, cuBLAS и cuDNN 9 на системе.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
   <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
+  <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
 </section>
 
 <section class="card wide">
@@ -481,11 +481,9 @@ async function refresh(){
 
     // VK channel keeps a local draft while the user edits it.
     writeServerValue('vk_channel', s.vkplay.channel_id||'');
-    const vk=document.getElementById('vkStatus');
     const vkTop=document.getElementById('vkStatusTop');
     const vkText=s.vkplay.connected ? 'VK Видео Live: подключён' : 'VK Видео Live: '+(s.vkplay.configured?'настроен':'не настроен');
     const vkClass=s.vkplay.connected ? 'pill status-good' : 'pill status-bad';
-    vk.textContent=vkText; vk.className=vkClass;
     vkTop.textContent=vkText; vkTop.className=vkClass;
     document.getElementById('vkInfo').textContent=
       [s.vkplay.message||'', s.vkplay.last_event ? 'Последнее событие: '+s.vkplay.last_event : '']
@@ -536,6 +534,16 @@ async function refresh(){
     if(sttLastText){
       const lastText=String(s.stt.last_text||'').trim();
       sttLastText.textContent=lastText ? 'Последнее распознавание: '+lastText : 'Последнее распознавание: пока нет текста.';
+    }
+    const sttAudioInfo=document.getElementById('sttAudioInfo');
+    if(sttAudioInfo){
+      const rms=Number(s.stt.audio_rms||0);
+      const peak=Number(s.stt.audio_peak||0);
+      const blocks=Number(s.stt.audio_blocks_received||0);
+      const attempts=Number(s.stt.transcribe_attempts||0);
+      const duration=Number(s.stt.last_transcribe_duration||0);
+      const result=String(s.stt.last_transcribe_result||'ещё не запускалось');
+      sttAudioInfo.textContent='Микрофон: RMS '+rms.toFixed(3)+' · пик '+peak.toFixed(3)+' · блоков '+blocks+' · окон STT '+attempts+' · последнее окно '+duration.toFixed(1)+' с · '+result;
     }
     if(!document.getElementById('sttInfo').matches(':focus')){
       const sttMessage=s.stt.message||'';
@@ -905,7 +913,7 @@ async function stopVk(){
 }
 async function saveStt(){
   try{
-    await api('/api/stt/config',{method:'POST',body:JSON.stringify({
+    const x=await api('/api/stt/config',{method:'POST',body:JSON.stringify({
       model_name:document.getElementById('stt_model').value,
       language:document.getElementById('stt_language').value.trim(),
       input_device:parseInt(document.getElementById('stt_input').value,10),
@@ -916,7 +924,16 @@ async function saveStt(){
     })});
     ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
-    document.getElementById('sttInfo').textContent='STT настройки сохранены.';
+    document.getElementById('sttInfo').textContent=x.restart_required
+      ? 'Настройки сохранены. Перезапускаю STT с выбранным устройством…'
+      : 'STT настройки сохранены.';
+    if(x.restart_required){
+      try{
+        await api('/api/stt/start',{method:'POST'});
+      }catch(e){
+        document.getElementById('sttInfo').textContent='Настройки сохранены, но STT не запустился: '+e.message;
+      }
+    }
     refresh();
   }catch(e){alert(e.message)}
 }
