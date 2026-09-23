@@ -9,161 +9,97 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      - name: Download bundled Silero model
-        shell: pwsh
+      - name: Read release version
+        id: version
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force models | Out-Null
-          Invoke-WebRequest -Uri "https://models.silero.ai/models/tts/ru/v5_ru.pt" -OutFile "models\v5_ru.pt"
-          if ((Get-Item "models\v5_ru.pt").Length -lt 1MB) {
-            throw "Silero model download failed."
-          }
+          version="$(tr -d '\r\n' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          test -n "$version"
 
-      - name: Build portable Windows EXE
-        shell: pwsh
-        run: |
-          powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
-
-      - name: Smoke-test packaged EXE
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw .\VERSION).Trim()
-          $releaseRoot = ".\dist_release\StreamVoiceBot_$version"
-          $exe = Resolve-Path (Join-Path $releaseRoot "StreamVoiceBot.exe")
-          $desktop = [Environment]::GetFolderPath("Desktop")
-          $shortcutPath = Join-Path $desktop "Stream Voice Bot.lnk"
-          if (Test-Path $shortcutPath) { Remove-Item $shortcutPath -Force }
-          $process = Start-Process -FilePath $exe -PassThru
-          try {
-            $ready = $false
-            for ($i = 0; $i -lt 60; $i++) {
-              Start-Sleep -Seconds 1
-              if ($process.HasExited) { break }
-              try {
-                $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8787/" -TimeoutSec 2
-                if ($response.StatusCode -eq 200) { $ready = $true; break }
-              } catch {}
-            }
-            if (-not $ready) { throw "Packaged EXE did not serve admin page on 127.0.0.1:8787 within 60 seconds." }
-            $tts = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8787/api/tts/test?profile=normal" -TimeoutSec 5
-            if (-not $tts.ok) { throw "Packaged EXE TTS test request was rejected." }
-            $ttsReady = $false
-            for ($i = 0; $i -lt 30; $i++) {
-              Start-Sleep -Seconds 1
-              try {
-                $state = Invoke-RestMethod -Uri "http://127.0.0.1:8787/api/state" -TimeoutSec 2
-                if ($state.model.loaded) { $ttsReady = $true; break }
-              } catch {}
-            }
-            if (-not $ttsReady) { throw "Packaged EXE did not load bundled Silero model during TTS smoke test." }
-            if (-not (Test-Path $shortcutPath -PathType Leaf)) { throw "Packaged EXE did not create the desktop shortcut on first launch." }
-            $shell = New-Object -ComObject WScript.Shell
-            $shortcut = $shell.CreateShortcut($shortcutPath)
-            $targetPath = [IO.Path]::GetFullPath($shortcut.TargetPath)
-            $expectedPath = [IO.Path]::GetFullPath($exe.Path)
-            if ($targetPath -ne $expectedPath) { throw "Desktop shortcut target mismatch." }
-          } finally {
-            if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
-            if (Test-Path $shortcutPath) { Remove-Item $shortcutPath -Force -ErrorAction SilentlyContinue }
-          }
-
-      - name: Clean runtime residue before release ZIP
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw .\VERSION).Trim()
-          $releaseRoot = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
-          $dataDir = Join-Path $releaseRoot "data"
-          if (Test-Path $dataDir) { Remove-Item $dataDir -Recurse -Force }
-          Get-ChildItem $releaseRoot -Recurse -Force -File |
-            Where-Object { $_.Extension -in @(".log", ".sqlite3", ".db", ".wav", ".part") } |
-            Remove-Item -Force -ErrorAction SilentlyContinue
-          if (Test-Path (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk")) {
-            Remove-Item (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk") -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Create release package
-        id: package
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw .\VERSION).Trim()
-          $releaseDir = Join-Path (Resolve-Path .\dist_release) ("StreamVoiceBot_{0}" -f $version)
-          $zip = Join-Path (Resolve-Path .) ("StreamVoiceBot_{0}_Windows_x64.zip" -f $version)
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          if (Test-Path ($zip + ".sha256")) { Remove-Item ($zip + ".sha256") -Force }
-          Push-Location (Split-Path -Parent $releaseDir)
-          try {
-            7z a -tzip -mx=5 $zip (Split-Path -Leaf $releaseDir) | Write-Host
-          } finally {
-            Pop-Location
-          }
-          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          Set-Content -LiteralPath ($zip + ".sha256") -Value "$hash  $(Split-Path -Leaf $zip)" -Encoding ASCII
-
-      - name: Publish v1.1.11
+      - name: Update repository description
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
+        shell: bash
         run: |
-          $version = (Get-Content -Raw .\VERSION).Trim()
-          $tag = "v$version"
-          if (gh release view $tag --repo "${{ github.repository }}" 2>$null) {
-            Write-Host "Release $tag already exists; nothing to publish."
+          gh api --method PATCH "repos/${{ github.repository }}" \
+            -f description='Local Windows stream assistant: Twitch + VK Video Live, Silero TTS, OBS/VB-CABLE, optional faster-whisper STT and subtitle tracks.' \
+            >/dev/null 2>&1 || true
+
+      - name: Download tested Windows EXE candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh run download 35851044058 \
+            --repo "${{ github.repository }}" \
+            --name StreamVoiceBot-windows-candidate \
+            --dir release-root
+          test -f "release-root/StreamVoiceBot_1.1.11/StreamVoiceBot.exe"
+
+      - name: Create Windows release ZIP
+        shell: bash
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          zip="StreamVoiceBot_${version}_Windows_x64.zip"
+          rm -f "$zip" "$zip.sha256"
+          7z a -tzip -mx=5 "$zip" "release-root/StreamVoiceBot_${version}" >/dev/null
+          mv "release-root/StreamVoiceBot_${version}" "StreamVoiceBot_${version}"
+          sha256sum "$zip" > "$zip.sha256"
+          test -s "$zip"
+          test -s "$zip.sha256"
+
+      - name: Publish v1.1.11
+        if: steps.version.outputs.version == '1.1.11'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $tag already exists."
             exit 0
-          }
-          $notes = @'
+          fi
+          cat > release-notes.md <<'EOF'
 # 🎙️ Stream Voice Bot v1.1.11
 
-Локальный Windows-ассистент для стримов: Twitch + VK Видео Live, Silero TTS, OBS/VB-CABLE и опциональные STT-субтитры.
+Локальный Windows-ассистент для стримов.
 
-## Что входит
+### Возможности
+- 🔊 Silero V5 TTS с профилями «Обычная» / «Громкая»
+- 🟣 Twitch EventSub и Channel Points
+- 🔵 VK Видео Live chat bridge
+- 🎧 VB-CABLE → OBS, 48 kHz stereo
+- 🎤 faster-whisper STT: Авто (CUDA → CPU), GPU (NVIDIA CUDA), CPU int8
+- 📝 Несколько OBS subtitle tracks
+- 🌍 Локальный перевод через Argos Translate
+- 🔐 Секреты Twitch/VK через Windows Credential Manager
+- 📦 Компактная Windows portable EXE-сборка
 
-- 🔊 **Silero V5 TTS** — локальная озвучка с профилями «Обычная» / «Громкая»
-- 🟣 **Twitch EventSub / Channel Points**
-- 🔵 **VK Видео Live** — readonly chat bridge
-- 🎧 **VB-CABLE → OBS**, 48 kHz stereo
-- 🎤 **faster-whisper STT** — опционально
-- ⚙️ **STT: Авто (CUDA → CPU), GPU (NVIDIA CUDA), CPU int8**
-- 📝 **Несколько OBS subtitle tracks** с отдельными URL
-- 🌍 **Локальный перевод через Argos Translate**
-- 🔐 Секреты Twitch/VK в Windows Credential Manager
-- 📦 Компактная Windows portable EXE-сборка с `_internal` и внешней `data`
-- 🖥️ Автоматическое создание ярлыка `Stream Voice Bot`
-- 🧪 Windows smoke-test и регрессионные проверки перед публикацией
+### Установка
+Распакуйте ZIP **целиком** и запускайте `StreamVoiceBot.exe`.
+Для TTS требуется отдельно установленный VB-CABLE.
 
-## Установка
+### STT
+`CPU int8` не требует CUDA.
+GPU-режим требует совместимый NVIDIA-драйвер и CUDA 12 runtime/cuDNN 9.
 
-Распакуй `StreamVoiceBot_1.1.11_Windows_x64.zip` целиком и запусти `StreamVoiceBot.exe`.
-
-Для TTS нужен установленный **VB-CABLE**.
-
-STT можно оставить отключённым или использовать `CPU int8`. GPU-режим требует совместимый NVIDIA-драйвер и CUDA 12 runtime/cuDNN 9.
-
-## OBS субтитры
-
+### OBS
+Субтитры доступны через Browser Source, например:
 `http://127.0.0.1:8787/subtitles/ru`
 
-Рядом с ZIP опубликована контрольная сумма SHA-256.
-@'
-          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
-          Set-Content -LiteralPath $notesFile -Value $notes -Encoding UTF8
-          gh release create $tag `
-            --repo "${{ github.repository }}" `
-            --target "${{ github.sha }}" `
-            --title "🎙️ Stream Voice Bot v$version" `
-            --notes-file $notesFile `
-            --latest `
-            ("StreamVoiceBot_{0}_Windows_x64.zip" -f $version) `
-            (("StreamVoiceBot_{0}_Windows_x64.zip" -f $version) + ".sha256")
+SHA-256 находится рядом с ZIP.
+EOF
+          gh release create "$tag" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "🎙️ Stream Voice Bot v${{ steps.version.outputs.version }}" \
+            --notes-file release-notes.md \
+            --latest \
+            "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows_x64.zip" \
+            "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows_x64.zip.sha256"
