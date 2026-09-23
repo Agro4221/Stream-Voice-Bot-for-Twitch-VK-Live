@@ -369,9 +369,12 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         # VK exposes the reward as a system chat announcement such as:
         # "ChatBot: User получает награду: Озвучить сообщение за 2: текст".
         # Ordinary viewer messages are never TTS input.
+        log.info("VK ChatBot event received: %r", raw_text)
         reward = parse_vk_reward_announcement(raw_text)
         if not reward:
+            log.warning("VK ChatBot event did not match reward parser: %r", raw_text)
             return
+        log.info("VK reward parsed: user=%s text=%r", reward["username"], reward["text"])
 
         message_id = event.get("id")
         if message_id and not db.claim_event("vk:" + str(message_id)):
