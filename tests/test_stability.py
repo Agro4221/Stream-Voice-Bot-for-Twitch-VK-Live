@@ -6,7 +6,9 @@ from pathlib import Path
 from stream_voice_bot.db import Database
 from stream_voice_bot.vkplay import parse_vk_reward_announcement
 from stream_voice_bot import log_buffer
+from stream_voice_bot.models import QueueItem
 import stream_voice_bot.stt as stt_module
+import stream_voice_bot.tts as tts_module
 
 
 class StabilityDatabaseTests(unittest.TestCase):
@@ -140,6 +142,73 @@ class StabilityDatabaseTests(unittest.TestCase):
                 stream.close()
             finally:
                 stt_module.sd = real_sd
+
+
+    def test_tts_queue_clear_reports_removed_items(self):
+        class FakeDB:
+            def __init__(self):
+                self.rows = {}
+
+            def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
+                hid = len(self.rows) + 1
+                self.rows[hid] = status
+                return hid
+
+            def mark_pending_history(self, ids, status="cleared"):
+                for hid in ids:
+                    self.rows[hid] = status
+                return len(ids)
+
+        class FakeModel:
+            def generate(self, *_args, **_kwargs):
+                return np.zeros(10, dtype=np.float32)
+
+        class FakePlayer:
+            paused = False
+            last_error = None
+            last_device = "fake"
+            last_sample_rate = 48000
+
+            def stop(self):
+                pass
+
+            def pause(self):
+                pass
+
+            def resume(self):
+                pass
+
+            def skip(self):
+                pass
+
+        db = FakeDB()
+        queue = tts_module.TTSQueue(
+            model=FakeModel(),
+            player=FakePlayer(),
+            speaker_getter=lambda: "xenia",
+            history_db=db,
+            max_chars_getter=lambda: 1000,
+        )
+        try:
+            queue.running = False
+            queue.thread.join(timeout=1)
+
+            first = db.add_history("u1", "first", "test", "2026-09-18T20:00:00")
+            second = db.add_history("u2", "second", "test", "2026-09-18T20:00:01")
+            queue.pending.extend([
+                (QueueItem("first", "u1", "test"), first, "normal"),
+                (QueueItem("second", "u2", "test"), second, "normal"),
+            ])
+            queue.queue.put_nowait((QueueItem("first", "u1", "test"), first, "normal"))
+            queue.queue.put_nowait((QueueItem("second", "u2", "test"), second, "normal"))
+
+            removed = queue.clear()
+            self.assertEqual(removed, 2)
+            self.assertEqual(queue.queued(), [])
+            self.assertEqual(db.rows[first], "cleared")
+            self.assertEqual(db.rows[second], "cleared")
+        finally:
+            queue.shutdown()
 
 
     def test_legacy_chat_messages_schema_is_migrated(self):

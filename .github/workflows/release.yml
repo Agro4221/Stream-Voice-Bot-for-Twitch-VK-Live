@@ -28,7 +28,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh run download 35851044058 --repo "${{ github.repository }}" --name StreamVoiceBot-windows-candidate --dir release-root
+          gh run download 35861679878 --repo "${{ github.repository }}" --name StreamVoiceBot-windows-candidate --dir release-root
           test -f "release-root/StreamVoiceBot_1.1.11/StreamVoiceBot.exe"
 
       - name: Package Windows build
@@ -41,6 +41,16 @@ jobs:
           7z a -tzip -mx=5 "$zip" "$folder" >/dev/null
           sha256sum "$zip" > "$zip.sha256"
           test -s "$zip"
+
+
+      - name: Update repository description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh api --method PATCH "repos/${{ github.repository }}" \
+            -f description='Local Windows stream assistant: Twitch + VK Video Live, Silero TTS, faster-whisper STT, OBS subtitles and VB-CABLE.' \
+            >/dev/null 2>&1 || true
 
       - name: Publish release
         if: steps.version.outputs.version == '1.1.11'
