@@ -732,15 +732,38 @@ class STTService:
                 ),
                 last_error="",
             )
-        except Exception:
+        except Exception as e:
             self._close_input_stream()
             self._release_model()
-            if self.last_error:
-                return
+            self.model_loading_started_at = None
+            self.loading_phase = "error"
+            self.loading_progress = None
+            self.loading_rate_mbps = None
+            if not self.last_error:
+                self._emit(
+                    running=False,
+                    model_loading=False,
+                    message=f"Ошибка запуска STT v2: {type(e).__name__}: {e}",
+                    last_error=f"{type(e).__name__}: {e}",
+                )
+            return
 
     def stop(self):
         self.stop_event.set()
         self._close_input_stream()
+
+        # The loader may still be downloading a model. Do not race it by
+        # clearing the model object from another thread; it will see
+        # stop_event and release its model before returning.
+        loader = self.start_thread
+        if loader and loader.is_alive():
+            self.model_loading = False
+            self._emit(running=False, model_loading=False, message="STT останавливается…")
+            return
+
+        for worker in (self.thread, self.transcribe_thread):
+            if worker and worker.is_alive() and worker is not threading.current_thread():
+                worker.join(timeout=2.0)
 
         # Stop should free the Whisper model instead of retaining hundreds of MB
         # in RAM after the captions were switched off.
