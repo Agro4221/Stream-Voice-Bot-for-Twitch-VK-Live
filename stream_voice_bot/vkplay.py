@@ -32,7 +32,7 @@ def normalize_channel(value: str) -> str:
 VK_REWARD_ANNOUNCEMENT_RE = re.compile(
     r"^\s*\*{0,2}(?:ChatBot:\s*)?(?P<username>[^*\r\n]+?)\s*\*{0,2}\s*"
     r"получает\s+награду"
-    r"(?:\s*:\s*Озвучить\s+сообщение)?"
+    r"(?:\s*:?\s*[«“”\"]?Озвучить\s+сообщение[»“”\"]?)?"
     r"\s+за\s+\d[\d\s.,]*\s*:?\s*[\r\n\s]*(?P<text>.+?)\s*$",
     re.IGNORECASE | re.DOTALL,
 )
