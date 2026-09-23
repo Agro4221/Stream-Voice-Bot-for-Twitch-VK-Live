@@ -14,6 +14,14 @@
 
 ## Текущая версия
 
+### 1.1.11
+- Добавлены ручные режимы STT: `Авто (CUDA → CPU)`, `GPU (NVIDIA CUDA)` и `CPU int8`.
+- Исправлены отображение фактического STT backend и перезапуск при смене устройства/модели.
+- Добавлена диагностика входного аудиосигнала и последнего окна распознавания.
+- Улучшена совместимость Windows USB/WASAPI input и коротких live-caption окон.
+- Добавлены много-дорожечные OBS subtitle tests и защита от subtitle-credit hallucinations.
+- Сокращён portable EXE bundle без удаления обязательного ML runtime.
+- Windows release package сопровождается SHA-256 и подробными release notes.
 ### 1.1.8
 - Упрощён Windows-запуск: один пользовательский `start_bot.bat`.
 - Launcher передаёт запуск бота отдельному скрытому PowerShell-процессу и сразу закрывает CMD.
