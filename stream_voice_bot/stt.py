@@ -263,8 +263,14 @@ class STTService:
                     self.model = None
                     self.runtime_device = None
                     self.runtime_compute_type = None
+                    detail = f"{type(e).__name__}: {e}"
+                    if "cublas64_12.dll" in detail.lower():
+                        detail += (
+                            " | Не найден NVIDIA cuBLAS для CUDA 12. "
+                            "Установите CUDA 12.x или используйте режим «Авто (CUDA → CPU)»/«CPU int8»."
+                        )
                     raise RuntimeError(
-                        f"CUDA выбрана, но STT не удалось запустить: {type(e).__name__}: {e}"
+                        f"CUDA выбрана, но STT не удалось запустить: {detail}"
                     ) from e
             else:
                 try:
