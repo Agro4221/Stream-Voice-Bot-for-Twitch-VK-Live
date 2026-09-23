@@ -151,9 +151,9 @@ jobs:
           $root = Resolve-Path (".\dist_release\StreamVoiceBot_{0}" -f $version)
           $total = (Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum
           Write-Host ("Bundle size: {0:N2} GB" -f ($total / 1GB))
+          $files = Get-ChildItem $root -Recurse -Force -File
           Write-Host "File count: $($files.Count)"
           Write-Host "Files by extension:"
-          $files = Get-ChildItem $root -Recurse -Force -File
           $files | Group-Object Extension | Sort-Object Count -Descending | Select-Object -First 20 Count,Name | Format-Table -AutoSize
           Write-Host "Files by top-level bundle directory:"
           $files | ForEach-Object {
