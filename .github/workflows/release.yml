@@ -23,25 +23,51 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           test -n "$version"
 
+      - name: Find latest successful Windows candidate
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          candidate_run="$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow exe-build-candidate.yml \
+            --branch exe-packaging-v1.1.9-release-candidate \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')"
+          test -n "$candidate_run"
+          echo "run_id=$candidate_run" >> "$GITHUB_OUTPUT"
+          echo "Using successful Windows candidate run: $candidate_run"
+
       - name: Download tested Windows candidate
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh run download 35861679878 --repo "${{ github.repository }}" --name StreamVoiceBot-windows-candidate --dir release-root
-          test -f "release-root/StreamVoiceBot_1.1.11/StreamVoiceBot.exe"
+          gh run download "${{ steps.candidate.outputs.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --name StreamVoiceBot-windows-candidate \
+            --dir release-root
+
+          version="${{ steps.version.outputs.version }}"
+          folder="StreamVoiceBot_$version"
+          test -f "release-root/$folder/StreamVoiceBot.exe"
 
       - name: Package Windows build
         shell: bash
         run: |
-          version="$(tr -d '\r\n' < VERSION)"
-          folder="StreamVoiceBot_${version}"
+          version="${{ steps.version.outputs.version }}"
+          folder="StreamVoiceBot_$version"
           zip="StreamVoiceBot_${version}_Windows_x64.zip"
+
           mv "release-root/$folder" "$folder"
           7z a -tzip -mx=5 "$zip" "$folder" >/dev/null
           sha256sum "$zip" > "$zip.sha256"
-          test -s "$zip"
 
+          test -s "$zip"
+          test -s "$zip.sha256"
 
       - name: Update repository description
         env:
@@ -49,36 +75,34 @@ jobs:
         shell: bash
         run: |
           gh api --method PATCH "repos/${{ github.repository }}" \
-            -f description='Локальный Windows-бот для стримов: Twitch + VK Video Live, Silero TTS, STT и OBS-субтитры. Сабы пока нестабильны — исправления в работе. Не судите строго: я новичок ^_^' \
-            >/dev/null 2>&1 || true
+            -f description='Windows stream bot: Twitch + VK Video Live, Silero TTS, faster-whisper STT и OBS-субтитры. Сабы пока нестабильны; исправления в работе — я новичок ^_^' \
+            >/dev/null
 
-      # Release notes are sourced from the versioned notes file so existing releases can be refreshed too.
       - name: Publish release
-        if: steps.version.outputs.version == '1.1.11'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          tag="v${{ steps.version.outputs.version }}"
-          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release $tag already exists."
-            exit 0
-          fi
-          notes="$(cat .github/RELEASE_NOTES_1.1.11.md)"
-          printf '%s\n' "$notes" > release-notes.md
+          version="${{ steps.version.outputs.version }}"
+          tag="v$version"
+          notes_file=".github/RELEASE_NOTES_$version.md"
+
+          test -f "$notes_file"
+          cp "$notes_file" release-notes.md
+
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "Release $tag already exists. Updating release notes."
             gh release edit "$tag" \
               --repo "${{ github.repository }}" \
-              --title "🎙️ Stream Voice Bot v${{ steps.version.outputs.version }}" \
+              --title "🎙️ Stream Voice Bot v$version" \
               --notes-file release-notes.md
           else
             gh release create "$tag" \
               --repo "${{ github.repository }}" \
               --target "${{ github.sha }}" \
-              --title "🎙️ Stream Voice Bot v${{ steps.version.outputs.version }}" \
+              --title "🎙️ Stream Voice Bot v$version" \
               --notes-file release-notes.md \
               --latest \
-              "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows_x64.zip" \
-              "StreamVoiceBot_${{ steps.version.outputs.version }}_Windows_x64.zip.sha256"
+              "StreamVoiceBot_${version}_Windows_x64.zip" \
+              "StreamVoiceBot_${version}_Windows_x64.zip.sha256"
           fi
