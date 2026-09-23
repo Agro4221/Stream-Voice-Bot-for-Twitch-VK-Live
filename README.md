@@ -9,6 +9,10 @@
 ![VK Video Live](https://img.shields.io/badge/VK%20Video%20Live-chat-0077FF)
 ![OBS](https://img.shields.io/badge/OBS-ready-302E31?logo=obsstudio&logoColor=white)
 
+> ⚠️ **Важно про субтитры:** сейчас сабы могут работать нестабильно. Работа по исправлению и улучшению этого компонента ведётся.
+>
+> 🙏 Прошу не судить слишком строго: я новичок в разработке и постепенно довожу проект до ума ^_^
+
 ## ✨ Что умеет
 
 | Возможность | Статус |
@@ -24,7 +28,7 @@
 | 🎧 VB-CABLE → OBS, 48 kHz stereo | ✅ |
 | 🎤 faster-whisper STT | ✅, опционально |
 | 🌍 Несколько subtitle tracks для OBS | ✅ |
-| 📝 Browser Source субтитров | ✅, опционально |
+| 📝 Browser Source субтитров | ⚠️, опционально |
 | 💾 Хранение Twitch/VK секретов в Windows Credential Manager | ✅ |
 
 ## 🧩 Архитектура
@@ -181,6 +185,8 @@ https://live.vkvideo.ru/username
 `SERVICE_KEY` и `SECURE_KEY` сохраняются в Windows Credential Manager и не попадают в SQLite.
 
 ## 📝 Subtitles
+
+> ⚠️ **Статус:** субтитры пока работают нестабильно. Исправления и улучшения этого компонента находятся в работе.
 
 Админка поддерживает несколько subtitle tracks и отдельный OBS Browser Source для каждой дорожки:
 
