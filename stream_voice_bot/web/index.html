@@ -227,7 +227,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Субтитры для OBS</h2><div class="small">Для каждой дорожки можно выбрать оригинал или автоматический перевод на отдельный язык. Дорожки можно выводить одновременно через несколько Browser Source.</div></div><button class="secondary" onclick="addSubtitleTrack()">+ Добавить дорожку</button></div>
   <div id="subtitleTracks"></div>
   <div class="small" style="margin-top:10px">URL дорожки: <code>http://127.0.0.1:8787/subtitles/ID</code>. Для каждой дорожки можно выбрать оригинал или перевод STT на другой язык. Перевод выполняется локально через Argos Translate; нужные языковые пакеты скачиваются один раз.</div>
-  <div class="actions" style="margin-top:10px"><button onclick="saveSubtitleTracks()">Сохранить дорожки</button><button class="secondary" onclick="prepareSubtitleTranslations()">Подготовить переводчики</button></div>
+  <div class="actions" style="margin-top:10px"><button onclick="saveSubtitleTracks()">Сохранить дорожки</button><button class="secondary" onclick="prepareSubtitleTranslations()">Подготовить переводчики</button><button class="secondary" onclick="testSubtitles()">Тест субтитров</button></div>
   <div id="subtitleInfo" class="small" style="margin-top:8px"></div>
 </section>
 
@@ -427,6 +427,15 @@ function addSubtitleTrack(){
 async function saveSubtitleTracks(){
   try{ const x=await api('/api/subtitles/tracks',{method:'POST',body:JSON.stringify({tracks:collectSubtitleTracks()})}); renderSubtitleTracks(x.tracks); document.getElementById('subtitleInfo').textContent='Дорожки субтитров сохранены.'; refresh(); }
   catch(e){ document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message; }
+}
+async function testSubtitles(){
+  try{
+    const x=await api('/api/subtitles/test',{method:'POST'});
+    document.getElementById('subtitleInfo').textContent='Тест отправлен: '+(x.text||'Тест субтитров');
+    refresh();
+  }catch(e){
+    document.getElementById('subtitleInfo').textContent='Ошибка теста субтитров: '+e.message;
+  }
 }
 async function prepareSubtitleTranslations(){
   try{
