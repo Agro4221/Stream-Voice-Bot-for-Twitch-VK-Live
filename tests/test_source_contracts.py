@@ -215,6 +215,14 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("автоусиление x", web)
 
 
+    def test_stt_start_persists_current_ui_device_before_launch(self):
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("async function startStt(){", web)
+        self.assertIn("await api('/api/stt/config'", web)
+        self.assertIn("device_mode:document.getElementById('stt_device').value", web)
+        self.assertIn("await api('/api/stt/start'", web)
+
+
 
 if __name__ == "__main__":
     unittest.main()
