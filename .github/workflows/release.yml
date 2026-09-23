@@ -8,11 +8,8 @@ permissions:
   contents: write
 
 jobs:
-  build-windows:
-    if: github.ref == 'refs/heads/main'
+  release:
     runs-on: windows-latest
-    env:
-      PIP_NO_CACHE_DIR: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -93,14 +90,19 @@ jobs:
           Get-ChildItem $releaseRoot -Recurse -Force -File |
             Where-Object { $_.Extension -in @(".log", ".sqlite3", ".db", ".wav", ".part") } |
             Remove-Item -Force -ErrorAction SilentlyContinue
+          if (Test-Path (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk")) {
+            Remove-Item (Join-Path ([Environment]::GetFolderPath("Desktop")) "Stream Voice Bot.lnk") -Force -ErrorAction SilentlyContinue
+          }
 
-      - name: Create release ZIP
+      - name: Create release package
         id: package
         shell: pwsh
         run: |
           $version = (Get-Content -Raw .\VERSION).Trim()
           $releaseDir = Join-Path (Resolve-Path .\dist_release) ("StreamVoiceBot_{0}" -f $version)
           $zip = Join-Path (Resolve-Path .) ("StreamVoiceBot_{0}_Windows_x64.zip" -f $version)
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          if (Test-Path ($zip + ".sha256")) { Remove-Item ($zip + ".sha256") -Force }
           Push-Location (Split-Path -Parent $releaseDir)
           try {
             7z a -tzip -mx=5 $zip (Split-Path -Leaf $releaseDir) | Write-Host
@@ -109,55 +111,19 @@ jobs:
           }
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath ($zip + ".sha256") -Value "$hash  $(Split-Path -Leaf $zip)" -Encoding ASCII
-          "zip=$zip" >> $env:GITHUB_OUTPUT
 
-      - name: Upload Windows release package
-        uses: actions/upload-artifact@v4
-        with:
-          name: StreamVoiceBot-Windows-Release
-          path: |
-            ${{ steps.package.outputs.zip }}
-            ${{ steps.package.outputs.zip }}.sha256
-          if-no-files-found: error
-          retention-days: 7
-
-  publish:
-    needs: build-windows
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Read release version
-        id: version
-        shell: bash
-        run: |
-          version="$(tr -d '\r\n' < VERSION)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          test -n "$version"
-
-      - name: Download Windows release package
-        uses: actions/download-artifact@v4
-        with:
-          name: StreamVoiceBot-Windows-Release
-          path: release-assets
-
-      - name: Check whether release already exists
-        id: existing
+      - name: Publish v1.1.11
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
+        shell: pwsh
         run: |
-          if gh release view "v${{ steps.version.outputs.version }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Write release notes
-        shell: bash
-        run: |
-          cat > release-notes.md <<'EOF'
+          $version = (Get-Content -Raw .\VERSION).Trim()
+          $tag = "v$version"
+          if (gh release view $tag --repo "${{ github.repository }}" 2>$null) {
+            Write-Host "Release $tag already exists; nothing to publish."
+            exit 0
+          }
+          $notes = @'
 # 🎙️ Stream Voice Bot v1.1.11
 
 Локальный Windows-ассистент для стримов: Twitch + VK Видео Live, Silero TTS, OBS/VB-CABLE и опциональные STT-субтитры.
@@ -174,40 +140,30 @@ jobs:
 - 🌍 **Локальный перевод через Argos Translate**
 - 🔐 Секреты Twitch/VK в Windows Credential Manager
 - 📦 Компактная Windows portable EXE-сборка с `_internal` и внешней `data`
-- 🖥️ Автоматическое создание ярлыка `Stream Voice Bot` при первом запуске EXE
+- 🖥️ Автоматическое создание ярлыка `Stream Voice Bot`
 - 🧪 Windows smoke-test и регрессионные проверки перед публикацией
 
-## Windows
+## Установка
 
-Скачай `StreamVoiceBot_1.1.11_Windows_x64.zip`, распакуй всю папку целиком и запусти `StreamVoiceBot.exe`.
+Распакуй `StreamVoiceBot_1.1.11_Windows_x64.zip` целиком и запусти `StreamVoiceBot.exe`.
 
-Для TTS нужен установленный **VB-CABLE**. Он не входит в пакет и устанавливается отдельно как системный аудиодрайвер.
+Для TTS нужен установленный **VB-CABLE**.
 
-STT можно оставить отключённым или выбрать `CPU int8`. GPU-режим использует NVIDIA CUDA 12 runtime и cuDNN 9; необходимые GPU-библиотеки подготавливаются приложением отдельно от основного EXE-пакета.
+STT можно оставить отключённым или использовать `CPU int8`. GPU-режим требует совместимый NVIDIA-драйвер и CUDA 12 runtime/cuDNN 9.
 
 ## OBS субтитры
 
-После запуска используй URL вида:
-
 `http://127.0.0.1:8787/subtitles/ru`
 
-или другой ID дорожки, созданной в админке.
-
-## Контрольная сумма
-
-Рядом с ZIP опубликован файл `.sha256`.
-EOF
-
-      - name: Publish release
-        if: steps.existing.outputs.exists != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh release create "v${{ steps.version.outputs.version }}" \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
-            --title "🎙️ Stream Voice Bot v${{ steps.version.outputs.version }}" \
-            --notes-file release-notes.md \
-            --latest \
-            release-assets/*
+Рядом с ZIP опубликована контрольная сумма SHA-256.
+@'
+          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Set-Content -LiteralPath $notesFile -Value $notes -Encoding UTF8
+          gh release create $tag `
+            --repo "${{ github.repository }}" `
+            --target "${{ github.sha }}" `
+            --title "🎙️ Stream Voice Bot v$version" `
+            --notes-file $notesFile `
+            --latest `
+            ("StreamVoiceBot_{0}_Windows_x64.zip" -f $version) `
+            (("StreamVoiceBot_{0}_Windows_x64.zip" -f $version) + ".sha256")
