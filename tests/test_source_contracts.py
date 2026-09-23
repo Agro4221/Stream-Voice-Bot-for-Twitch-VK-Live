@@ -116,6 +116,20 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("NVIDIA cuBLAS для CUDA 12", stt)
         self.assertIn("def _prepare_windows_cuda_dll_search", stt)
 
+    def test_stt_runtime_diagnostics_and_restart_contract(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        app = self.read("stream_voice_bot/app.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("self.audio_rms", stt)
+        self.assertIn("self.transcribe_attempts", stt)
+        self.assertIn('"audio_rms":', stt)
+        self.assertIn("restart_required", app)
+        self.assertIn("previous_device != stt.config.device_mode", app)
+        self.assertIn("stt.stop()", app)
+        self.assertIn("Микрофон: RMS", web)
+        self.assertIn("await api('/api/stt/start'", web)
+        self.assertNotIn('id="vkStatus"', web)
+
     def test_stt_source_subtitles_are_not_routed_by_detected_language(self):
         stt = self.read("stream_voice_bot/stt.py")
         app = self.read("stream_voice_bot/app.py")
