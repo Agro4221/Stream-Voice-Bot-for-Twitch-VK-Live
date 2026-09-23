@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import threading
 import time
 import tempfile
@@ -18,6 +19,9 @@ from torch.package import PackageImporter
 
 from .models import QueueItem
 from .text_normalize import normalize_for_tts
+
+
+log = logging.getLogger("stream_voice_bot.tts")
 
 # Keep local TTS unobtrusive on gaming/streaming PCs. PyTorch otherwise
 # chooses a thread pool based on the host CPU, which can create avoidable
@@ -359,6 +363,12 @@ class TTSQueue:
                     )
                 except Exception as e:
                     self.player.last_error = f"{type(e).__name__}: {e}"
+                    log.exception(
+                        "TTS generation failed: source=%s user=%s text=%r",
+                        item.source,
+                        item.username,
+                        item.text,
+                    )
                     result = "error"
             finally:
                 try:
