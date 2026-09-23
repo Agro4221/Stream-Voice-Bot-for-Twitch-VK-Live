@@ -248,7 +248,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA; если локального GPU runtime нет, он один раз автоматически скачивается и сохраняется в data/gpu_runtime. При неудаче приложение переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер. Первый GPU запуск может скачать около 849 МБ.</div>
+  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA и при недоступности автоматически переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер, CUDA 12.x, cuBLAS и cuDNN 9 на системе.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
   <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
   <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
@@ -399,7 +399,7 @@ function languageOptions(selected){
 }
 function renderSubtitleTracks(tracks){
   const box=document.getElementById('subtitleTracks');
-  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}" data-id="${esc(t.id||'')}">
+  box.innerHTML=(tracks||[]).map((t,i)=>`<div class="subtrack" data-i="${i}">
     <div class="row">
       <div class="field"><label>ID</label><input data-k="id" value="${esc(t.id||'')}" maxlength="32"></div>
       <div class="field" style="flex:1"><label>Название</label><input data-k="name" value="${esc(t.name||'')}" maxlength="64" style="width:100%"></div>
@@ -409,7 +409,7 @@ function renderSubtitleTracks(tracks){
         <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
       </select></div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
-      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack').dataset.id)">Тест</button>
+      <button class="secondary" onclick="testSubtitleTrack(t.id)">Тест</button>
       <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
     </div>
     <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
@@ -650,14 +650,7 @@ async function refresh(){
 }
 async function queueAction(action){
   try{
-    const result=await api('/api/queue/'+encodeURIComponent(action),{method:'POST'});
-    if(action==='clear'){
-      const cleared=Number(result.cleared||0);
-      document.getElementById('audioStatus').textContent=
-        cleared
-          ? 'Очередь очищена: убрано '+cleared+' сообщ.'
-          : 'Ожидающая очередь уже пуста. Текущая озвучка не остановлена.';
-    }
+    await api('/api/queue/'+encodeURIComponent(action),{method:'POST'});
     await refresh();
   }catch(e){
     document.getElementById('audioStatus').textContent='Ошибка '+action+': '+e.message;
@@ -979,40 +972,13 @@ async function saveStt(){
   }catch(e){alert(e.message)}
 }
 async function startStt(){
-  const info=document.getElementById('sttInfo');
-  if(info) info.textContent='Сохраняю текущие настройки и запускаю STT…';
+  document.getElementById('sttInfo').textContent='Запускаю STT…';
   try{
-    const x=await api('/api/stt/config',{method:'POST',body:JSON.stringify({
-      model_name:document.getElementById('stt_model').value,
-      language:document.getElementById('stt_language').value.trim(),
-      input_device:parseInt(document.getElementById('stt_input').value,10),
-      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
-      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
-      compute_type:document.getElementById('stt_compute').value,
-      device_mode:document.getElementById('stt_device').value
-    })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
-    document.getElementById('sttDirty').style.display='none';
-
-    if(x.restart_required){
-      const deadline=Date.now()+120000;
-      let stopped=false;
-      while(Date.now()<deadline){
-        const state=await api('/api/state');
-        if(!state.stt?.running && !state.stt?.model_loading){
-          stopped=true;
-          break;
-        }
-        await new Promise(resolve=>setTimeout(resolve,300));
-      }
-      if(!stopped) throw new Error('старый STT ещё не остановился');
-    }
-
-    const started=await api('/api/stt/start',{method:'POST'});
-    if(info) info.textContent=started.state?.message||'STT запускается…';
+    const x=await api('/api/stt/start',{method:'POST'});
+    document.getElementById('sttInfo').textContent=x.state?.message||'STT запускается…';
     refresh();
   }catch(e){
-    if(info) info.textContent='Ошибка STT: '+e.message;
+    document.getElementById('sttInfo').textContent='Ошибка STT: '+e.message;
     refresh();
   }
 }

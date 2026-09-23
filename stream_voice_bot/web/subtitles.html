@@ -16,7 +16,6 @@ opacity:0;transition:opacity .15s}
 </head>
 <body>
 <div id="sub"></div>
-<div id="debug" style="display:none;position:fixed;left:10px;top:10px;right:10px;padding:8px;background:rgba(0,0,0,.85);color:#fff;font:14px/1.35 Arial,sans-serif;z-index:10"></div>
 <script>
 const parts = location.pathname.split("/").filter(Boolean);
 const trackId = (parts.length > 1 ? parts[parts.length - 1] : "ru").toLowerCase();
@@ -25,21 +24,10 @@ async function update(){
   try{
     const r=await fetch('/api/state',{cache:'no-store'});
     const s=await r.json();
-    const item=s.subtitle?.[trackId] || {};
-    const rawText=String(item.text||'');
-    const blocked=/(?:subtitles?\s+(?:made|created|provided)\s+by\b|\bdima\s*torzok\b)/i.test(rawText);
-    const text=blocked ? '' : rawText;
-    const debug=document.getElementById('debug');
-    if(new URLSearchParams(location.search).get('debug')==='1'){
-      debug.style.display='block';
-      debug.textContent='track='+trackId+' · timestamp='+(item.timestamp||0)+' · text='+(text||'нет текста')+' · tracks='+Object.keys(s.subtitle||{}).join(',');
-    }
+    const item=s.subtitle?.[trackId] || (trackId==='ru' ? s.subtitle?.ru : null) || {};
+    const text=item.text||'';
     const ts=Number(item.timestamp||0);
     const el=document.getElementById('sub');
-    if(!text && blocked){
-      document.getElementById('sub').textContent='';
-      document.getElementById('sub').classList.remove('show');
-    }
     if(text && ts!==lastTs){
       lastTs=ts;
       el.textContent=text;

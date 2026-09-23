@@ -6,11 +6,6 @@ import sys
 import threading
 import re
 import time
-import hashlib
-import shutil
-import subprocess
-import tempfile
-import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,8 +124,6 @@ class STTService:
         self.last_transcribe_duration = 0.0
         self.last_transcribe_at: float | None = None
         self.last_transcribe_result = "ещё не запускалось"
-        self.gpu_runtime_dir: Path | None = None
-        self.gpu_runtime_ready = False
 
     def _emit(self, **data):
         with self.lock:
@@ -164,7 +157,6 @@ class STTService:
             "last_transcribe_duration": round(float(self.last_transcribe_duration), 2),
             "last_transcribe_at": self.last_transcribe_at,
             "last_transcribe_result": self.last_transcribe_result,
-            "gpu_runtime_ready": bool(self.gpu_runtime_ready),
             "model": self.config.model_name,
             "language": self.config.language,
             "input_device": self.config.input_device,
@@ -211,129 +203,6 @@ class STTService:
                 message=f"Изменение ({reason_text}) STT применится при следующем запуске STT.",
             )
 
-    def _gpu_runtime_path(self) -> Path:
-        data_root = self.db.path.parent if hasattr(self.db, "path") else Path.cwd() / "data"
-        runtime_dir = Path(data_root) / "gpu_runtime"
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.gpu_runtime_dir = runtime_dir
-        return runtime_dir
-
-    @staticmethod
-    def _gpu_runtime_expected() -> tuple[str, int]:
-        # Purfview's CUDA12_v3 bundle contains CUDA 12.8.4.1 + cuDNN 9.8.0.87,
-        # which matches the current faster-whisper CUDA 12 / cuDNN 9 requirement.
-        return (
-            "https://github.com/Purfview/whisper-standalone-win/releases/download/libs/cuBLAS.and.cuDNN_CUDA12_win_v3.7z",
-            849_141_159,
-        )
-
-    def _gpu_runtime_is_ready(self) -> bool:
-        runtime_dir = self._gpu_runtime_path()
-        required = (
-            runtime_dir / "cublasLt64_12.dll",
-            runtime_dir / "cublas64_12.dll",
-            runtime_dir / "cudart64_12.dll",
-            runtime_dir / "cudnn64_9.dll",
-        )
-        ready = all(path.is_file() and path.stat().st_size > 1_000_000 for path in required)
-        self.gpu_runtime_ready = ready
-        if ready:
-            self._prepare_windows_cuda_dll_search()
-        return ready
-
-    def _install_gpu_runtime(self) -> bool:
-        runtime_dir = self._gpu_runtime_path()
-        if self._gpu_runtime_is_ready():
-            return True
-
-        url, expected_size = self._gpu_runtime_expected()
-        archive_path = runtime_dir.parent / ".gpu_runtime_cuda12.7z"
-        extract_dir = runtime_dir.parent / ".gpu_runtime_extract"
-
-        self._set_loading_phase(
-            "gpu-runtime",
-            "Скачиваю GPU runtime для STT… 0%",
-            progress=0.0,
-        )
-        started = time.monotonic()
-        downloaded = 0
-        try:
-            request = urllib.request.Request(
-                url,
-                headers={"User-Agent": "StreamVoiceBot/1.1.11"},
-            )
-            with urllib.request.urlopen(request, timeout=30) as response, archive_path.open("wb") as out:
-                while True:
-                    chunk = response.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    downloaded += len(chunk)
-                    elapsed = max(time.monotonic() - started, 0.001)
-                    progress = min(100.0, downloaded / expected_size * 100.0)
-                    rate_mbps = downloaded / elapsed / 1_000_000.0
-                    self._set_loading_phase(
-                        "gpu-runtime",
-                        f"Скачиваю GPU runtime для STT… {progress:.0f}% "
-                        f"({self._format_mb(downloaded)} / {self._format_mb(expected_size)})",
-                        progress=progress,
-                        rate_mbps=rate_mbps,
-                    )
-
-            actual_size = archive_path.stat().st_size
-            if actual_size != expected_size:
-                raise RuntimeError(
-                    f"GPU runtime download size mismatch: {actual_size} != {expected_size} bytes"
-                )
-
-            if shutil.which("tar") is None:
-                raise RuntimeError(
-                    "Windows tar.exe не найден. Он нужен для распаковки GPU runtime."
-                )
-
-            if extract_dir.exists():
-                shutil.rmtree(extract_dir, ignore_errors=True)
-            extract_dir.mkdir(parents=True, exist_ok=True)
-            self._set_loading_phase(
-                "gpu-runtime-extract",
-                "Распаковываю GPU runtime для STT…",
-            )
-            proc = subprocess.run(
-                ["tar", "-xf", str(archive_path), "-C", str(extract_dir)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            if proc.returncode != 0:
-                detail = (proc.stderr or proc.stdout or "").strip()
-                raise RuntimeError(f"Не удалось распаковать GPU runtime: {detail}")
-
-            dlls = list(extract_dir.rglob("*.dll"))
-            copied = 0
-            for dll in dlls:
-                target = runtime_dir / dll.name
-                shutil.copy2(dll, target)
-                copied += 1
-
-            if not self._gpu_runtime_is_ready():
-                raise RuntimeError(
-                    "GPU runtime распакован, но обязательные NVIDIA DLL не найдены."
-                )
-
-            return True
-        finally:
-            try:
-                archive_path.unlink(missing_ok=True)
-            except TypeError:
-                if archive_path.exists():
-                    archive_path.unlink()
-            shutil.rmtree(extract_dir, ignore_errors=True)
-
-    def _ensure_gpu_runtime(self) -> bool:
-        if self._gpu_runtime_is_ready():
-            return True
-        return self._install_gpu_runtime()
-
     def _check_cuda_runtime(self):
         """Fail fast when the NVIDIA runtime is not usable."""
         self._prepare_windows_cuda_dll_search()
@@ -350,12 +219,6 @@ class STTService:
         if sys.platform != "win32":
             return
         candidates = []
-        try:
-            local_runtime = self._gpu_runtime_path()
-            if local_runtime.is_dir():
-                candidates.append(local_runtime)
-        except Exception:
-            pass
         for env_name in ("CUDA_PATH", "CUDA_PATH_V12_8", "CUDA_PATH_V12_6", "CUDA_PATH_V12_4"):
             value = os.environ.get(env_name)
             if value:
@@ -481,12 +344,6 @@ class STTService:
         mode = requested_mode
         if mode in {"auto", "cuda"}:
             self._prepare_windows_cuda_dll_search()
-            # A missing CUDA runtime is fixed locally on first GPU attempt.
-            if not self._gpu_runtime_is_ready():
-                self._set_loading_phase(
-                    "cuda-runtime",
-                    "GPU runtime отсутствует — подготовлю его автоматически при запуске CUDA…",
-                )
 
         self._emit(
             running=False,
@@ -522,13 +379,6 @@ class STTService:
                 model_loading=True,
                 message="Проверяю NVIDIA CUDA перед загрузкой STT модели…",
             )
-            self._emit(
-                running=False,
-                model_loading=True,
-                loading_phase="cuda-runtime",
-                message="Проверяю/устанавливаю локальный GPU runtime для STT…",
-            )
-            self._ensure_gpu_runtime()
             self._check_cuda_runtime()
             self._emit(
                 running=False,

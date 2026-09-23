@@ -252,16 +252,6 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                 track["mode"] = "translate"
     except Exception:
         subtitle_tracks = default_subtitle_tracks
-    _SUBTITLE_CREDIT_RE = re.compile(
-        r"(?:\bsubtitles?\s+(?:made|created|provided)\s+by\b|"
-        r"\b(?:субтитры|субтитров)\s+(?:сделаны|сделано|созданы|создано|предоставлены)\b|"
-        r"\bdima\s*torzok\b)",
-        re.IGNORECASE,
-    )
-
-    def _is_bad_subtitle_text(value: str) -> bool:
-        return bool(_SUBTITLE_CREDIT_RE.search(" ".join(str(value or "").split())))
-
     subtitle_state = {
         str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru")}
         for t in subtitle_tracks
@@ -298,11 +288,6 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             pass
 
     def on_subtitle(data: dict):
-        text_value = str(data.get("text") or "").strip()
-        if not text_value or _is_bad_subtitle_text(text_value):
-            log.warning("Blocked subtitle hallucination/credit text: %r", text_value)
-            return
-
         explicit_track = str(data.get("track_id") or "").strip().lower()
         is_translated = data.get("source") is False
         with subtitle_lock:
@@ -818,8 +803,8 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     @app.post("/api/queue/clear")
     async def clear():
-        cleared = queue.clear()
-        return {"ok": True, "cleared": cleared}
+        queue.clear()
+        return {"ok": True}
 
     @app.post("/api/repeat/{history_id}")
     async def repeat_one(history_id: int, profile: str = "normal"):
@@ -1112,27 +1097,15 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         subtitle_tracks = clean
         db.set_setting("subtitle_tracks", json.dumps(subtitle_tracks, ensure_ascii=False))
         with subtitle_lock:
-            active_ids = {t["id"] for t in subtitle_tracks}
             for t in subtitle_tracks:
-                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
-                state["language"] = t["language"]
-                if not t.get("enabled", True):
-                    state.update({"text": "", "timestamp": 0})
-            stale = [k for k in subtitle_state if k not in active_ids]
+                subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+            stale = [k for k in subtitle_state if k not in {t["id"] for t in subtitle_tracks}]
             for k in stale:
                 subtitle_state.pop(k, None)
         source_language = db.get_setting("stt_language", "ru") or "ru"
         translation_status["message"] = "Подготовка переводчиков…"
         asyncio.create_task(asyncio.to_thread(translator.prepare_tracks, source_language, clean))
         return {"ok": True, "tracks": subtitle_tracks}
-
-    @app.get("/api/subtitles/debug/{track_id}")
-    async def subtitle_track_debug(track_id: str):
-        track_id = str(track_id or "").strip().lower()
-        if not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
-            raise HTTPException(400, "Invalid subtitle track id")
-        with subtitle_lock:
-            return {"ok": True, "track_id": track_id, "state": subtitle_state.get(track_id), "tracks": subtitle_tracks}
 
     @app.post("/api/subtitles/test/{track_id}")
     async def subtitle_track_test(track_id: str):
@@ -1207,34 +1180,8 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     @app.post("/api/stt/start")
     async def stt_start():
         try:
-            # A running worker may still belong to a previous CPU/GPU
-            # configuration (or may be alive after an inference error). In that
-            # case, restart it instead of returning "already works".
-            active = bool(stt.thread and stt.thread.is_alive())
-            runtime_device = stt.runtime_device
-            configured_device = stt.config.device_mode
-            needs_restart = active and (
-                bool(stt.last_error)
-                or (
-                    configured_device in {"cpu", "cuda"}
-                    and runtime_device not in {None, configured_device}
-                )
-            )
-            if needs_restart:
-                stt.stop()
-                deadline = time.monotonic() + 15.0
-                while time.monotonic() < deadline:
-                    if not (stt.thread and stt.thread.is_alive()) and not (
-                        stt.start_thread and stt.start_thread.is_alive()
-                    ):
-                        break
-                    await asyncio.sleep(0.2)
-                if stt.thread and stt.thread.is_alive():
-                    raise HTTPException(409, "Предыдущий STT ещё не остановился")
             stt.start()
-            return {"ok": True, "state": stt.state(), "restarted": needs_restart}
-        except HTTPException:
-            raise
+            return {"ok": True, "state": stt.state()}
         except Exception as e:
             raise HTTPException(500, str(e))
 

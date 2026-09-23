@@ -1,6 +1,6 @@
 # 🎙️ Stream Voice Bot
 
-> Локальный Windows-бот для озвучки чата стрима через **Silero TTS**, Twitch Channel Points и VK Видео Live. Голос можно напрямую отдавать в **OBS через VB-CABLE**, а очередь озвучки управляется из локальной админки.
+> Локальный Windows-ассистент для стрима: **Twitch + VK Видео Live → Silero TTS → VB-CABLE/OBS**, с очередью озвучки, локальной админкой, опциональным **faster-whisper STT**, OBS Browser Source субтитрами и локальным переводом через Argos Translate.
 
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python&logoColor=white)
@@ -57,6 +57,17 @@
                                       └───────────────────┘
 ```
 
+## 🆕 Что нового в v1.1.11
+
+v1.1.11 объединяет актуальную Windows portable/.exe-упаковку и последние изменения админки/STT:
+
+- отдельные режимы STT: **Авто (CUDA → CPU)**, **GPU (NVIDIA CUDA)** и **CPU int8**;
+- статусы Twitch, VK и STT в шапке с понятным состоянием подключения;
+- много-дорожечные OBS-субтитры с отдельным URL для каждой дорожки;
+- диагностика STT: выбранное устройство, сигнал микрофона, количество окон и последнее распознавание;
+- защита от типичных Whisper subtitle-credit hallucinations;
+- компактная portable EXE-сборка с `_internal`, внешней папкой `data` и автоматическим ярлыком Windows.
+- TTS на Silero V5 и работа Twitch/VK сохранены без изменения пользовательского сценария.
 ## 🚀 Быстрый старт
 
 ### Вариант 1 — буквально двойной клик

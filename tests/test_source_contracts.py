@@ -41,8 +41,6 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("127.0.0.1:8787", hidden_launcher)
 
         self.assertIn("function queueAction(action)", web)
-        self.assertIn("const cleared=Number(result.cleared||0)", web)
-        self.assertIn("Очередь очищена: убрано", web)
         self.assertIn("method:'POST'", web)
         self.assertIn('onclick="shutdownBot()"', web)
         self.assertIn("Работает", web)
@@ -215,58 +213,6 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('"threshold": 0.35', stt)
         self.assertIn('"min_silence_duration_ms": 300', stt)
         self.assertIn("автоусиление x", web)
-
-
-    def test_stt_start_persists_current_ui_device_before_launch(self):
-        web = self.read("stream_voice_bot/web/index.html")
-        self.assertIn("async function startStt(){", web)
-        self.assertIn("await api('/api/stt/config'", web)
-        self.assertIn("device_mode:document.getElementById('stt_device').value", web)
-        self.assertIn("await api('/api/stt/start'", web)
-
-
-    def test_subtitle_browser_diagnostics_are_wired(self):
-        web = self.read("stream_voice_bot/web/index.html")
-        app = self.read("stream_voice_bot/app.py")
-        subtitles = self.read("stream_voice_bot/web/subtitles.html")
-        self.assertIn("data-id=", web)
-        self.assertIn("testSubtitleTrack(this.closest('.subtrack').dataset.id)", web)
-        self.assertIn('@app.get("/api/subtitles/debug/{track_id}")', app)
-        self.assertIn("URLSearchParams(location.search).get('debug')==='1'", subtitles)
-
-
-    def test_subtitle_credit_hallucinations_are_blocked_end_to_end(self):
-        app = self.read("stream_voice_bot/app.py")
-        subtitles = self.read("stream_voice_bot/web/subtitles.html")
-        self.assertIn("_is_bad_subtitle_text", app)
-        self.assertIn(r"\bdima\s*torzok\b", app)
-        self.assertIn("if not text_value or _is_bad_subtitle_text(text_value)", app)
-        self.assertIn("const blocked=", subtitles)
-        self.assertIn(r"dima\s*torzok", subtitles)
-
-
-    def test_stt_can_install_local_cuda_runtime_on_demand(self):
-        stt = self.read("stream_voice_bot/stt.py")
-        web = self.read("stream_voice_bot/web/index.html")
-        self.assertIn("def _install_gpu_runtime", stt)
-        self.assertIn("cublas64_12.dll", stt)
-        self.assertIn("cudnn64_9.dll", stt)
-        self.assertIn('["tar", "-xf"', stt)
-        self.assertIn("data/gpu_runtime", web)
-        self.assertIn("849 МБ", web)
-
-
-    def test_gpu_runtime_uses_database_data_directory(self):
-        stt = self.read("stream_voice_bot/stt.py")
-        self.assertIn("self.db.path.parent", stt)
-        self.assertIn('runtime_dir = Path(data_root) / "gpu_runtime"', stt)
-
-
-    def test_gpu_runtime_path_is_added_to_windows_dll_search(self):
-        stt = self.read("stream_voice_bot/stt.py")
-        self.assertIn("local_runtime = self._gpu_runtime_path()", stt)
-        self.assertIn("candidates.append(local_runtime)", stt)
-        self.assertIn("runtime_dir = Path(data_root) / \"gpu_runtime\"", stt)
 
 
 
