@@ -121,12 +121,9 @@ class StabilitySourceContractTests(unittest.TestCase):
 
     def test_stt_status_does_not_report_stale_device(self):
         stt = self.read("stream_voice_bot/stt.py")
-        web = self.read("stream_voice_bot/web/index.html")
-        self.assertIn('"device": self.runtime_device if (self.thread and self.thread.is_alive()) else None', stt)
+        self.assertIn('"device": self.runtime_device if running else None', stt)
         self.assertIn("self.runtime_device = None", stt)
         self.assertIn('last_error=f"{type(e).__name__}: {e}"', stt)
-        self.assertIn("очень низкий уровень сигнала", web)
-        self.assertIn('disabled><option>float16</option><option>int8</option>', web)
 
     def test_stt_runtime_diagnostics_and_restart_contract(self):
         stt = self.read("stream_voice_bot/stt.py")
@@ -134,13 +131,11 @@ class StabilitySourceContractTests(unittest.TestCase):
         web = self.read("stream_voice_bot/web/index.html")
         self.assertIn("self.audio_rms", stt)
         self.assertIn("self.transcribe_attempts", stt)
-        self.assertIn('"audio_rms":', stt)
-        self.assertIn("restart_required", app)
-        self.assertIn("previous_device != stt.config.device_mode", app)
+        self.assertIn('"vad_state":', stt)
+        self.assertIn('"utterance_queue":', stt)
+        self.assertIn("previous = (", app)
         self.assertIn("stt.stop()", app)
-        self.assertIn("Микрофон: RMS", web)
         self.assertIn("await api('/api/stt/start'", web)
-        self.assertNotIn('id="vkStatus"', web)
 
     def test_stt_source_subtitles_are_not_routed_by_detected_language(self):
         stt = self.read("stream_voice_bot/stt.py")
@@ -163,68 +158,49 @@ class StabilitySourceContractTests(unittest.TestCase):
 
     def test_stt_is_bounded_and_validated(self):
         src = self.read("stream_voice_bot/stt.py")
-        self.assertIn("deque(maxlen=200)", src)
-        self.assertIn("def _candidate_input_rates", src)
-        self.assertNotIn("first_device_failed", src)
-        self.assertIn("def _open_input_stream", src)
-        self.assertIn("stream = sd.InputStream(", src)
-        self.assertIn("stream.start()", src)
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("queue.Queue(maxsize=120)", src)
+        self.assertIn("queue.Queue(maxsize=2)", src)
+        self.assertIn("def _vad_worker", src)
+        self.assertIn("def _transcription_worker", src)
+        self.assertIn("self.model.transcribe(", src)
+        self.assertIn("vad_filter=False", src)
+        self.assertIn("condition_on_previous_text=False", src)
+        self.assertIn("self._enqueue_utterance(", src)
+        self.assertIn("self.config.silence_seconds", src)
+        self.assertIn("self.config.max_utterance_seconds", src)
         self.assertIn("resample_poly", src)
-        self.assertIn("CoInitialize(None)", src)
-        self.assertIn("CoUninitialize()", src)
-        self.assertIn("overlap_seconds must be smaller than chunk_seconds", src)
-        self.assertIn("chunk_seconds: float = 2.5", src)
-        self.assertIn("overlap_seconds: float = 0.25", src)
-        self.assertIn("model_loading_started_at", src)
-        self.assertIn("\"loading_seconds\":", src)
-        self.assertIn("source_audio = buf[-chunk_samples:]", src)
-        self.assertIn("while self.audio_q:", src)
         self.assertIn("self.translator.translate(", src)
-        self.assertIn("source_text, source_language, target", src)
-        self.assertIn("stt-translate-", src)
-        self.assertIn('self.runtime_device = "cpu"', src)
         self.assertIn('device = "cuda"', src)
+        self.assertIn('device = "cpu"', src)
         self.assertIn('device_mode: str = "auto"', src)
         self.assertIn('db.get_setting("stt_device", "auto")', src)
-        self.assertIn('"device_mode": self.config.device_mode', src)
-        self.assertIn('mode not in {"auto", "cuda", "cpu"}', src)
-        self.assertIn('device="cuda"', src)
-        self.assertIn('device="cpu"', src)
-        self.assertIn("desired_model = str(self.config.model_name)", src)
-        self.assertIn("loaded_model, loaded_backend = self.loaded_model_key", src)
-        self.assertIn("def _should_skip_segment", src)
-        self.assertIn("_HALLUCINATION_CREDIT_RE", src)
-        self.assertIn('"min_silence_duration_ms": 300', src)
-        self.assertIn('"speech_pad_ms": 200', src)
-        self.assertIn('"threshold": 0.35', src)
-
+        self.assertIn('"device": self.runtime_device if running else None', src)
+        self.assertIn("self._release_model()", src)
+        self.assertIn("STT v2", web)
 
     def test_stt_model_reuses_actual_backend_after_stop(self):
         stt = self.read("stream_voice_bot/stt.py")
         self.assertIn("loaded_model, loaded_backend = self.loaded_model_key", stt)
-        self.assertIn('requested_mode == "auto"', stt)
         self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cpu")', stt)
         self.assertIn('self.loaded_model_key = (str(self.config.model_name), "cuda")', stt)
-        self.assertIn('loaded_model, loaded_backend = self.loaded_model_key', stt)
-
+        self.assertIn('requested_mode == "auto"', stt)
 
     def test_stt_applies_conservative_gain_to_quiet_input(self):
         stt = self.read("stream_voice_bot/stt.py")
-        web = self.read("stream_voice_bot/web/index.html")
-        self.assertIn("self.input_gain = 1.0", stt)
-        self.assertIn("gain = min(12.0", stt)
-        self.assertIn('"threshold": 0.35', stt)
-        self.assertIn('"min_silence_duration_ms": 300', stt)
-        self.assertIn("автоусиление x", web)
-
+        self.assertIn("self.input_gain = gain", stt)
+        self.assertIn("gain = min(8.0", stt)
+        self.assertIn("self.config.vad_threshold", stt)
+        self.assertIn("self.noise_rms", stt)
 
     def test_stt_start_persists_current_ui_device_before_launch(self):
         web = self.read("stream_voice_bot/web/index.html")
         self.assertIn("async function startStt(){", web)
         self.assertIn("await api('/api/stt/config'", web)
         self.assertIn("device_mode:document.getElementById('stt_device').value", web)
+        self.assertIn("min_speech_seconds:parseFloat(document.getElementById('stt_min_speech').value)", web)
+        self.assertIn("vad_threshold:parseFloat(document.getElementById('stt_vad').value)", web)
         self.assertIn("await api('/api/stt/start'", web)
-
 
     def test_subtitle_browser_diagnostics_are_wired(self):
         web = self.read("stream_voice_bot/web/index.html")
@@ -245,6 +221,15 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("const blocked=", subtitles)
         self.assertIn(r"dima\s*torzok", subtitles)
 
+
+    def test_stt_v2_is_phrase_gated_and_memory_bounded(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("Whisper is invoked only after a real speech phrase is detected", stt)
+        self.assertIn("self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=120)", stt)
+        self.assertIn("self.utterance_q: queue.Queue[tuple[np.ndarray, float, float]] = queue.Queue(maxsize=2)", stt)
+        self.assertIn("self.stop_event.set()", stt)
+        self.assertIn("self._release_model()", stt)
+        self.assertIn("self.vad_state = "speech"", stt)
 
     def test_stt_can_install_local_cuda_runtime_on_demand(self):
         stt = self.read("stream_voice_bot/stt.py")
