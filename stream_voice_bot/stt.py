@@ -107,6 +107,7 @@ class STTService:
         # Oldest audio is dropped instead of allowing an unbounded memory backlog.
         self.audio_q: deque[np.ndarray] = deque(maxlen=200)
         self.last_text = ""
+        self.input_gain = 1.0
         self.model_loading = False
         self.model_loading_started_at: float | None = None
         self.message = "STT остановлен"
@@ -149,6 +150,7 @@ class STTService:
             "loading_rate_mbps": self.loading_rate_mbps,
             "audio_rms": round(float(self.audio_rms), 5),
             "audio_peak": round(float(self.audio_peak), 5),
+            "input_gain": round(float(self.input_gain), 2),
             "audio_blocks_received": int(self.audio_blocks_received),
             "audio_last_callback_at": self.audio_last_callback_at,
             "transcribe_attempts": int(self.transcribe_attempts),
@@ -474,6 +476,16 @@ class STTService:
                 return
             self.stop_event.clear()
             self.audio_q.clear()
+            self.audio_rms = 0.0
+            self.audio_peak = 0.0
+            self.audio_blocks_received = 0
+            self.audio_last_callback_at = None
+            self.transcribe_attempts = 0
+            self.last_transcribe_duration = 0.0
+            self.last_transcribe_at = None
+            self.last_transcribe_result = "ещё не запускалось"
+            self.last_text = ""
+            self.input_gain = 1.0
             self.model_loading_started_at = time.monotonic()
             self.loading_phase = "starting"
             self.loading_progress = None
@@ -737,6 +749,18 @@ class STTService:
                     audio = source_audio
 
                 try:
+                    # USB microphone drivers may expose a very low digital level.
+                    # Apply a conservative automatic gain only to quiet input so
+                    # Silero VAD and Whisper can still see normal speech.
+                    raw_peak = float(np.max(np.abs(source_audio))) if source_audio.size else 0.0
+                    raw_rms = float(np.sqrt(np.mean(np.square(source_audio), dtype=np.float64))) if source_audio.size else 0.0
+                    if raw_peak > 0.0005 and raw_peak < 0.08:
+                        gain = min(12.0, max(1.0, 0.18 / raw_peak))
+                    else:
+                        gain = 1.0
+                    self.input_gain = gain
+                    if gain > 1.0:
+                        source_audio = np.clip(source_audio * gain, -1.0, 1.0).astype(np.float32)
                     transcribe_started = time.monotonic()
                     self.transcribe_attempts += 1
                     self.last_transcribe_at = time.time()
@@ -746,8 +770,9 @@ class STTService:
                         beam_size=self.config.beam_size,
                         vad_filter=True,
                         vad_parameters={
-                            "min_silence_duration_ms": 500,
-                            "speech_pad_ms": 150,
+                            "threshold": 0.35,
+                            "min_silence_duration_ms": 300,
+                            "speech_pad_ms": 200,
                         },
                         condition_on_previous_text=False,
                         temperature=0,
