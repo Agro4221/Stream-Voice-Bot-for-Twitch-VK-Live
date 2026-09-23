@@ -26,7 +26,9 @@ async function update(){
     const r=await fetch('/api/state',{cache:'no-store'});
     const s=await r.json();
     const item=s.subtitle?.[trackId] || {};
-    const text=item.text||'';
+    const rawText=String(item.text||'');
+    const blocked=/(?:subtitles?\\s+(?:made|created|provided)\\s+by\\b|\\bdima\\s*torzok\\b)/i.test(rawText);
+    const text=blocked ? '' : rawText;
     const debug=document.getElementById('debug');
     if(new URLSearchParams(location.search).get('debug')==='1'){
       debug.style.display='block';
@@ -34,6 +36,10 @@ async function update(){
     }
     const ts=Number(item.timestamp||0);
     const el=document.getElementById('sub');
+    if(!text && blocked){
+      document.getElementById('sub').textContent='';
+      document.getElementById('sub').classList.remove('show');
+    }
     if(text && ts!==lastTs){
       lastTs=ts;
       el.textContent=text;
