@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   release:
@@ -22,38 +23,24 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           test -n "$version"
 
-      - name: Download tested Windows EXE candidate
+      - name: Download tested Windows candidate
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh run download 35851044058 \
-            --repo "${{ github.repository }}" \
-            --name StreamVoiceBot-windows-candidate \
-            --dir release-root
+          gh run download 35851044058 --repo "${{ github.repository }}" --name StreamVoiceBot-windows-candidate --dir release-root
           test -f "release-root/StreamVoiceBot_1.1.11/StreamVoiceBot.exe"
 
-      - name: Create Windows release package
+      - name: Package Windows build
         shell: bash
         run: |
           version="$(tr -d '\r\n' < VERSION)"
           folder="StreamVoiceBot_${version}"
           zip="StreamVoiceBot_${version}_Windows_x64.zip"
-          rm -f "$zip" "$zip.sha256"
           mv "release-root/$folder" "$folder"
           7z a -tzip -mx=5 "$zip" "$folder" >/dev/null
           sha256sum "$zip" > "$zip.sha256"
           test -s "$zip"
-          test -s "$zip.sha256"
-
-      - name: Update repository description
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh api --method PATCH "repos/${{ github.repository }}" \
-            -f description='Local Windows stream assistant: Twitch + VK Video Live, Silero TTS, OBS/VB-CABLE, optional faster-whisper STT and subtitle tracks.' \
-            >/dev/null 2>&1 || true
 
       - name: Publish release
         if: steps.version.outputs.version == '1.1.11'
@@ -66,43 +53,8 @@ jobs:
             echo "Release $tag already exists."
             exit 0
           fi
-          cat > release-notes.md <<'EOF'
-# 🎙️ Stream Voice Bot v1.1.11
-
-Локальный Windows-ассистент для стримов.
-
-## Возможности
-
-- 🔊 **Silero V5 TTS** — локальная озвучка, профили «Обычная» / «Громкая»
-- 🟣 **Twitch** — Device Code Flow, EventSub и Channel Points
-- 🔵 **VK Видео Live** — readonly chat bridge
-- 🎧 **OBS + VB-CABLE** — 48 kHz stereo
-- 🎤 **STT** — `Авто (CUDA → CPU)`, `GPU (NVIDIA CUDA)`, `CPU int8`
-- 📝 **OBS-субтитры** — несколько независимых дорожек
-- 🌍 **Argos Translate** — локальный перевод субтитров
-- 🔐 Секреты Twitch/VK — Windows Credential Manager
-- 📦 Компактная Windows portable EXE-сборка
-- 🧪 Windows smoke-test и регрессионные проверки
-
-## Установка
-
-1. Скачайте `StreamVoiceBot_1.1.11_Windows_x64.zip`.
-2. Распакуйте архив **целиком**.
-3. Запустите `StreamVoiceBot.exe`.
-
-Для TTS отдельно установите **VB-CABLE**.
-
-## STT
-
-CPU-режим работает без CUDA.
-GPU-режим использует NVIDIA CUDA 12 runtime + cuDNN 9.
-
-## OBS Browser Source
-
-`http://127.0.0.1:8787/subtitles/ru`
-
-Рядом с ZIP лежит файл `.sha256` с контрольной суммой.
-EOF
+          notes=$'# 🎙️ Stream Voice Bot v1.1.11\n\nЛокальный Windows-ассистент для стримов: Twitch + VK Видео Live, Silero TTS, OBS/VB-CABLE и опциональные STT-субтитры.\n\n## Возможности\n- 🔊 Silero V5 TTS\n- 🟣 Twitch EventSub / Channel Points\n- 🔵 VK Видео Live chat\n- 🎧 VB-CABLE → OBS, 48 kHz stereo\n- 🎤 STT: Авто (CUDA → CPU), GPU (NVIDIA CUDA), CPU int8\n- 📝 Много-дорожечные OBS-субтитры\n- 🌍 Argos Translate\n- 📦 Компактная Windows portable EXE-сборка\n\n## Установка\nРаспакуйте ZIP целиком и запустите StreamVoiceBot.exe. Для TTS требуется отдельно установленный VB-CABLE.\n\nSHA-256 опубликован рядом с ZIP.'
+          printf '%s\n' "$notes" > release-notes.md
           gh release create "$tag" \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
