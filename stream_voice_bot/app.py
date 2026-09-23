@@ -88,8 +88,10 @@ class STTConfigRequest(BaseModel):
     language: str | None = None
     input_device: int | None = None
     sample_rate: int | None = None
-    chunk_seconds: float | None = Field(default=None, ge=1, le=10)
-    overlap_seconds: float | None = Field(default=None, ge=0, le=3)
+    min_speech_seconds: float | None = Field(default=None, ge=0.1, le=2)
+    silence_seconds: float | None = Field(default=None, ge=0.2, le=3)
+    max_utterance_seconds: float | None = Field(default=None, ge=1, le=15)
+    vad_threshold: float | None = Field(default=None, ge=0.0005, le=0.2)
     beam_size: int | None = Field(default=None, ge=1, le=10)
     compute_type: str | None = None
     device_mode: str | None = None
@@ -172,27 +174,18 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
 
-    # Keep existing installs on a known live-caption window. Older releases
-    # used experimental 2.0/2.5s + 0.25s settings; the 1.1.11 candidate briefly
-    # moved to 4.0/0.5, which is too slow for live captions. Migrate those
-    # known windows to the restored 2.5/0.25 profile once.
-    if db.get_setting("stt_stable_window_migrated") != "1":
-        saved_chunk = db.get_setting("stt_chunk_seconds", "")
-        saved_overlap = db.get_setting("stt_overlap_seconds", "")
-        if saved_chunk in {"2", "2.0", "2.5", "2.50"} and saved_overlap in {"0.25", ".25"}:
-            db.set_setting("stt_chunk_seconds", "2.5")
-            db.set_setting("stt_overlap_seconds", "0.25")
-        db.set_setting("stt_stable_window_migrated", "1")
-
-    # Existing 1.1.11 candidate installs already have the stable-window marker
-    # set and therefore need a separate one-time migration from 4.0/0.5.
-    if db.get_setting("stt_live_latency_v2_migrated") != "1":
-        saved_chunk = db.get_setting("stt_chunk_seconds", "")
-        saved_overlap = db.get_setting("stt_overlap_seconds", "")
-        if saved_chunk in {"4", "4.0", "4.00"} and saved_overlap in {"0.5", ".5", "0.50"}:
-            db.set_setting("stt_chunk_seconds", "2.5")
-            db.set_setting("stt_overlap_seconds", "0.25")
-        db.set_setting("stt_live_latency_v2_migrated", "1")
+    # STT v2 migration: replace the previous fixed-window Whisper pipeline
+    # with lightweight VAD + phrase-based transcription. Existing heavy defaults
+    # are moved to the small model once; users can still choose another model.
+    if db.get_setting("stt_v2_model_migrated") != "1":
+        saved_model = str(db.get_setting("stt_model", "") or "").strip().lower()
+        if not saved_model or saved_model in {"large-v3-turbo", "large-v3", "medium"}:
+            db.set_setting("stt_model", "small")
+        db.set_setting("stt_min_speech_seconds", "0.30")
+        db.set_setting("stt_silence_seconds", "0.65")
+        db.set_setting("stt_max_utterance_seconds", "7.0")
+        db.set_setting("stt_vad_threshold", "0.008")
+        db.set_setting("stt_v2_model_migrated", "1")
 
     db.prune_history(max_rows=50000)
 
@@ -1176,34 +1169,28 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     # ---- STT ----
     @app.post("/api/stt/config")
     async def stt_config(req: STTConfigRequest):
-        current_chunk = stt.config.chunk_seconds
-        current_overlap = stt.config.overlap_seconds
         if req.device_mode is not None and req.device_mode not in {"auto", "cuda", "cpu"}:
             raise HTTPException(400, "Unknown STT device mode")
-        chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
-        overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
-        if overlap >= chunk:
-            raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
-            was_running = bool(stt.thread and stt.thread.is_alive())
-            previous_model = stt.config.model_name
-            previous_device = stt.config.device_mode
+            was_running = bool(stt.state().get("running"))
+            previous = (
+                stt.config.model_name,
+                stt.config.device_mode,
+                stt.config.input_device,
+                stt.config.sample_rate,
+            )
             stt.save_config(**kwargs)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
 
-        changed_runtime = (
-            was_running
-            and (
-                previous_model != stt.config.model_name
-                or previous_device != stt.config.device_mode
-            )
+        changed_runtime = was_running and previous != (
+            stt.config.model_name,
+            stt.config.device_mode,
+            stt.config.input_device,
+            stt.config.sample_rate,
         )
         if changed_runtime:
-            # Do not silently keep an old CUDA/CPU model after the user saved
-            # a different device/model. Stop the current worker; the UI can
-            # then start the newly selected configuration deterministically.
             stt.stop()
 
         return {"ok": True, "restart_required": changed_runtime, "state": stt.state()}
@@ -1214,7 +1201,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             # A running worker may still belong to a previous CPU/GPU
             # configuration (or may be alive after an inference error). In that
             # case, restart it instead of returning "already works".
-            active = bool(stt.thread and stt.thread.is_alive())
+            active = bool(stt.state().get("running"))
             runtime_device = stt.runtime_device
             configured_device = stt.config.device_mode
             needs_restart = active and (
@@ -1228,12 +1215,12 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                 stt.stop()
                 deadline = time.monotonic() + 15.0
                 while time.monotonic() < deadline:
-                    if not (stt.thread and stt.thread.is_alive()) and not (
+                    if not stt.state().get("running") and not (
                         stt.start_thread and stt.start_thread.is_alive()
                     ):
                         break
                     await asyncio.sleep(0.2)
-                if stt.thread and stt.thread.is_alive():
+                if stt.state().get("running"):
                     raise HTTPException(409, "Предыдущий STT ещё не остановился")
             stt.start()
             return {"ok": True, "state": stt.state(), "restarted": needs_restart}
