@@ -999,7 +999,7 @@ async function startStt(){
       compute_type:document.getElementById('stt_compute').value,
       device_mode:document.getElementById('stt_device').value
     })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
+    ['stt_model','stt_language','stt_input','stt_min_speech','stt_silence','stt_max_utterance','stt_vad','stt_device','stt_compute'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
 
     if(x.restart_required){
