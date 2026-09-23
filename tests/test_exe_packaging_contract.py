@@ -48,7 +48,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('value="cuda">GPU (NVIDIA CUDA)', src)
         self.assertIn('value="cpu">CPU int8', src)
         self.assertIn("GPU runtime", src)
-        self.assertIn("cuDNN 9", src)
+        self.assertIn("849 МБ", src)
         self.assertNotIn("cuDNN 8 на системе", src)
         self.assertIn('grid-template-columns:minmax(0,1fr) minmax(0,1fr)', src)
         self.assertIn('profile-box{min-width:0', src)
