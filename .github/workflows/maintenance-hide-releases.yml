@@ -1,0 +1,26 @@
+name: Hide old GitHub releases
+
+on:
+  push:
+    branches: ["exe-packaging-v1.1.9-release-candidate"]
+
+permissions:
+  contents: write
+
+jobs:
+  hide:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move published releases to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GH_REPO" --limit 100 --json tagName,isDraft |
+            jq -r '.[] | select(.isDraft == false) | .tagName' |
+            while IFS= read -r tag; do
+              echo "Drafting $tag"
+              gh release edit "$tag" --repo "$GH_REPO" --draft
+            done
