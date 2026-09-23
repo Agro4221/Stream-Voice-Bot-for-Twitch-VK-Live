@@ -251,6 +251,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
   </div>
   <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала пробует CUDA и при недоступности автоматически переходит на CPU. Для GPU нужен совместимый NVIDIA-драйвер, CUDA 12.x, cuBLAS и cuDNN 9 на системе.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
+  <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
 </section>
 
 <section class="card wide">
@@ -527,6 +528,11 @@ async function refresh(){
     document.getElementById('twitchInfo').textContent=
       [s.twitch.message||'', s.twitch.last_event ? 'Последнее событие: '+s.twitch.last_event : '']
       .filter(Boolean).join(' · ');
+    const sttLastText=document.getElementById('sttLastText');
+    if(sttLastText){
+      const lastText=String(s.stt.last_text||'').trim();
+      sttLastText.textContent=lastText ? 'Последнее распознавание: '+lastText : 'Последнее распознавание: пока нет текста.';
+    }
     if(!document.getElementById('sttInfo').matches(':focus')){
       const sttMessage=s.stt.message||'';
     const sttSeconds=Math.max(0,Math.floor(Number(s.stt.loading_seconds||0)));
