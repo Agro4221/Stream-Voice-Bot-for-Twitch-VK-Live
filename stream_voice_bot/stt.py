@@ -350,6 +350,12 @@ class STTService:
         if sys.platform != "win32":
             return
         candidates = []
+        try:
+            local_runtime = self._gpu_runtime_path()
+            if local_runtime.is_dir():
+                candidates.append(local_runtime)
+        except Exception:
+            pass
         for env_name in ("CUDA_PATH", "CUDA_PATH_V12_8", "CUDA_PATH_V12_6", "CUDA_PATH_V12_4"):
             value = os.environ.get(env_name)
             if value:
