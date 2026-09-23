@@ -254,6 +254,12 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("849 МБ", web)
 
 
+    def test_gpu_runtime_uses_database_data_directory(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("self.db.path.parent", stt)
+        self.assertIn('runtime_dir = Path(data_root) / "gpu_runtime"', stt)
+
+
 
 if __name__ == "__main__":
     unittest.main()
