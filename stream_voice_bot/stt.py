@@ -13,7 +13,10 @@ from typing import Callable
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
+from faster_whisper.utils import _MODELS
 import ctranslate2
+from huggingface_hub import snapshot_download
+from tqdm.auto import tqdm
 from scipy.signal import resample_poly
 
 
@@ -108,6 +111,9 @@ class STTService:
         self.message = "STT остановлен"
         self.last_error = ""
         self.input_stream_sample_rate: int | None = None
+        self.loading_phase = "idle"
+        self.loading_progress: float | None = None
+        self.loading_rate_mbps: float | None = None
 
     def _emit(self, **data):
         with self.lock:
@@ -128,6 +134,9 @@ class STTService:
             "runtime_compute_type": self.runtime_compute_type,
             "device_mode": self.config.device_mode,
             "loading_seconds": round(max(0.0, time.monotonic() - self.model_loading_started_at), 1) if self.model_loading and self.model_loading_started_at else 0.0,
+            "loading_phase": self.loading_phase,
+            "loading_progress": self.loading_progress,
+            "loading_rate_mbps": self.loading_rate_mbps,
             "model": self.config.model_name,
             "language": self.config.language,
             "input_device": self.config.input_device,
@@ -210,6 +219,85 @@ class STTService:
             except (AttributeError, OSError):
                 pass
 
+    def _set_loading_phase(self, phase: str, message: str, progress: float | None = None, rate_mbps: float | None = None):
+        self.loading_phase = phase
+        self.loading_progress = progress
+        self.loading_rate_mbps = rate_mbps
+        self._emit(
+            running=False,
+            model_loading=True,
+            loading_phase=phase,
+            loading_progress=progress,
+            loading_rate_mbps=rate_mbps,
+            message=message,
+        )
+
+    def _download_model(self, model_name: str):
+        if "/" in str(model_name):
+            repo_id = str(model_name)
+        else:
+            repo_id = _MODELS.get(str(model_name))
+        if not repo_id:
+            raise RuntimeError(f"Неизвестная STT модель: {model_name}")
+
+        self._set_loading_phase(
+            "model-download",
+            f"Подготовка модели STT: {model_name}…",
+            progress=0.0,
+        )
+
+        service = self
+        started_at = time.monotonic()
+        last_emit = [started_at]
+        last_n = [0]
+
+        class ProgressTqdm(tqdm):
+            def update(self, n=1):
+                result = super().update(n)
+                now = time.monotonic()
+                if now - last_emit[0] >= 0.5 or (self.total and self.n >= self.total):
+                    total = float(self.total or 0.0)
+                    progress = (float(self.n) / total * 100.0) if total > 0 else None
+                    elapsed = max(now - started_at, 1e-6)
+                    delta_n = max(0, int(self.n) - last_n[0])
+                    rate_mbps = (delta_n / (now - last_emit[0]) / 1_000_000.0) if now - last_emit[0] > 0 else None
+                    if progress is None:
+                        rate_mbps = float(self.n) / elapsed / 1_000_000.0
+                    service._set_loading_phase(
+                        "model-download",
+                        (
+                            f"Скачивание модели STT: {model_name} — "
+                            f"{progress:.1f}% ({service._format_mb(self.n)} / {service._format_mb(self.total)})"
+                            if progress is not None
+                            else f"Скачивание модели STT: {model_name} — {service._format_mb(self.n)}"
+                        ),
+                        progress=progress,
+                        rate_mbps=rate_mbps,
+                    )
+                    last_emit[0] = now
+                    last_n[0] = int(self.n)
+                return result
+
+        allow_patterns = [
+            "config.json",
+            "preprocessor_config.json",
+            "model.bin",
+            "tokenizer.json",
+            "vocabulary.*",
+        ]
+        return snapshot_download(
+            repo_id=repo_id,
+            allow_patterns=allow_patterns,
+            tqdm_class=ProgressTqdm,
+        )
+
+    @staticmethod
+    def _format_mb(value) -> str:
+        try:
+            return f"{float(value) / 1_000_000.0:.0f} МБ"
+        except (TypeError, ValueError):
+            return "0 МБ"
+
     def _load_model(self):
         self.model_loading_started_at = self.model_loading_started_at or time.monotonic()
         requested_mode = str(self.config.device_mode or "auto").strip().lower()
@@ -243,8 +331,13 @@ class STTService:
                 model_loading=True,
                 message=f"Загрузка STT: {self.config.model_name} на CPU int8…",
             )
+            model_path = self._download_model(self.config.model_name)
+            self._set_loading_phase(
+                "model-init",
+                f"Загрузка модели STT в CPU: {self.config.model_name}…",
+            )
             self.model = WhisperModel(
-                self.config.model_name,
+                model_path,
                 device="cpu",
                 compute_type="int8",
             )
@@ -264,8 +357,13 @@ class STTService:
                 model_loading=True,
                 message=f"Загрузка STT: {self.config.model_name} на NVIDIA CUDA…",
             )
+            model_path = self._download_model(self.config.model_name)
+            self._set_loading_phase(
+                "model-init",
+                f"Загрузка модели STT в GPU: {self.config.model_name}…",
+            )
             self.model = WhisperModel(
-                self.config.model_name,
+                model_path,
                 device="cuda",
                 compute_type="float16",
             )
@@ -314,6 +412,9 @@ class STTService:
             self.runtime_compute_type = None
             self.loaded_model_key = None
             self.model_loading_started_at = None
+            self.loading_phase = "error"
+            self.loading_progress = None
+            self.loading_rate_mbps = None
             self._emit(
                 running=False,
                 model_loading=False,
@@ -323,6 +424,9 @@ class STTService:
             raise
 
         self.model_loading_started_at = None
+        self.loading_phase = "idle"
+        self.loading_progress = None
+        self.loading_rate_mbps = None
         self._emit(
             running=False,
             model_loading=False,
@@ -345,15 +449,27 @@ class STTService:
             self.stop_event.clear()
             self.audio_q.clear()
             self.model_loading_started_at = time.monotonic()
+            self.loading_phase = "starting"
+            self.loading_progress = None
+            self.loading_rate_mbps = None
+            self._emit(
+                running=False,
+                model_loading=True,
+                loading_phase="starting",
+                message=f"Запуск STT: {self.config.model_name}…",
+                last_error="",
+            )
             self.start_thread = threading.Thread(target=self._start_worker, name="stt-start", daemon=True)
             self.start_thread.start()
-        self._emit(running=False, model_loading=True, message=f"Запуск STT: загрузка {self.config.model_name}…", last_error="")
 
     def _start_worker(self):
         try:
             self._load_model()
             if self.stop_event.is_set():
                 self.model_loading_started_at = None
+                self.loading_phase = "idle"
+                self.loading_progress = None
+                self.loading_rate_mbps = None
                 self._emit(running=False, model_loading=False, message="STT остановлен")
                 return
             worker = threading.Thread(target=self._run, name="stt-worker", daemon=True)
