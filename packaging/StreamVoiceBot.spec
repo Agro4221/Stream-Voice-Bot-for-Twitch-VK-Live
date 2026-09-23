@@ -52,7 +52,19 @@ for package in (
     "ctranslate2",
     "argostranslate",
 ):
-    datas.extend(collect_data_files(package, include_py_files=False))
+    if package == "torch":
+        # The torch wheel ships C/C++ header trees for building native extensions.
+        # They are not needed by the frozen runtime and can account for thousands
+        # of individual files in an otherwise runnable EXE bundle.
+        datas.extend(
+            collect_data_files(
+                package,
+                include_py_files=False,
+                excludes=["include/**"],
+            )
+        )
+    else:
+        datas.extend(collect_data_files(package, include_py_files=False))
     binaries.extend(collect_dynamic_libs(package))
 
 # Silero V5 is loaded from the bundled .pt package via torch.package.
