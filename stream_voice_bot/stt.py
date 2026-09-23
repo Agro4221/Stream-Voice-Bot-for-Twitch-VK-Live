@@ -139,7 +139,8 @@ class STTService:
             "running": bool(self.thread and self.thread.is_alive()),
             "model_loading": bool(self.model_loading),
             "model_loaded": self.model is not None,
-            "device": self.runtime_device,
+            "device": self.runtime_device if (self.thread and self.thread.is_alive()) else None,
+            "configured_device": self.config.device_mode,
             "runtime_compute_type": self.runtime_compute_type,
             "device_mode": self.config.device_mode,
             "loading_seconds": round(max(0.0, time.monotonic() - self.model_loading_started_at), 1) if self.model_loading and self.model_loading_started_at else 0.0,
@@ -500,7 +501,12 @@ class STTService:
 
     def stop(self):
         self.stop_event.set()
-        self._emit(running=False, message="STT остановлен")
+        # Hide the old runtime backend immediately. The worker may take a short
+        # time to unwind, but the UI must not keep reporting a stale CUDA device
+        # after the user selected CPU (or vice versa).
+        self.runtime_device = None
+        self.runtime_compute_type = None
+        self._emit(running=False, model_loading=False, message="STT остановлен")
 
     def _callback(self, indata, frames, time_info, status):
         if status:
@@ -620,6 +626,15 @@ class STTService:
                         raise RuntimeError("PortAudio did not report an input sample rate")
                     actual_rate_int = int(round(actual_rate))
                     self.input_stream_sample_rate = actual_rate_int
+                    try:
+                        info = sd.query_devices(actual_device, kind="input")
+                        device_name = str(info.get("name") or f"device {actual_device}")
+                        self._emit(
+                            running=True,
+                            message=f"Микрофон открыт: {device_name} · {actual_rate_int} Hz · {channel_count}ch",
+                        )
+                    except Exception:
+                        pass
                     if requested_device is not None and actual_device is None:
                         self._emit(
                             running=True,
@@ -738,6 +753,8 @@ class STTService:
                     self.last_transcribe_duration = time.monotonic() - transcribe_started
                     self.last_transcribe_result = "текст получен" if text else "текста нет"
                     if text:
+                        self._emit(running=True, last_error="")
+                    if text:
                         detected_language = getattr(info, "language", self.config.language) or self.config.language
                         ts = time.time()
                         self.last_text = text
@@ -796,9 +813,12 @@ class STTService:
                                     daemon=True,
                                 ).start()
                 except Exception as e:
+                    self.last_transcribe_duration = max(0.0, time.monotonic() - transcribe_started)
+                    self.last_transcribe_result = f"ошибка: {type(e).__name__}"
                     self._emit(
                         running=True,
                         message=f"STT error: {type(e).__name__}: {e}",
+                        last_error=f"{type(e).__name__}: {e}",
                     )
         except Exception as e:
             self._emit(
