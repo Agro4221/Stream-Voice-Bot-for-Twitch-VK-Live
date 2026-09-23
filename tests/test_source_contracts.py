@@ -269,6 +269,15 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("runtime_dir = Path(data_root) / \"gpu_runtime\"", stt)
 
 
+    def test_stt_checks_nvidia_gpu_before_runtime_download(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("def _nvidia_gpu_present(self)", stt)
+        self.assertIn("if not self._nvidia_gpu_present():", stt)
+        self.assertIn("GPU runtime не скачивается.", stt)
+        self.assertIn("проверяет наличие NVIDIA GPU", web)
+
+
 
 if __name__ == "__main__":
     unittest.main()
