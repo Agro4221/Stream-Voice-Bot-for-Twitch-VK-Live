@@ -115,6 +115,14 @@ class STTService:
         self.loading_phase = "idle"
         self.loading_progress: float | None = None
         self.loading_rate_mbps: float | None = None
+        self.audio_rms = 0.0
+        self.audio_peak = 0.0
+        self.audio_blocks_received = 0
+        self.audio_last_callback_at: float | None = None
+        self.transcribe_attempts = 0
+        self.last_transcribe_duration = 0.0
+        self.last_transcribe_at: float | None = None
+        self.last_transcribe_result = "ещё не запускалось"
 
     def _emit(self, **data):
         with self.lock:
@@ -138,6 +146,14 @@ class STTService:
             "loading_phase": self.loading_phase,
             "loading_progress": self.loading_progress,
             "loading_rate_mbps": self.loading_rate_mbps,
+            "audio_rms": round(float(self.audio_rms), 5),
+            "audio_peak": round(float(self.audio_peak), 5),
+            "audio_blocks_received": int(self.audio_blocks_received),
+            "audio_last_callback_at": self.audio_last_callback_at,
+            "transcribe_attempts": int(self.transcribe_attempts),
+            "last_transcribe_duration": round(float(self.last_transcribe_duration), 2),
+            "last_transcribe_at": self.last_transcribe_at,
+            "last_transcribe_result": self.last_transcribe_result,
             "model": self.config.model_name,
             "language": self.config.language,
             "input_device": self.config.input_device,
@@ -490,9 +506,17 @@ class STTService:
         if status:
             self._emit(running=True, message=f"Audio input: {status}")
         if getattr(indata, "ndim", 1) > 1:
-            self.audio_q.append(indata[:, 0].copy())
+            data = indata[:, 0].copy()
         else:
-            self.audio_q.append(np.asarray(indata, dtype=np.float32).copy())
+            data = np.asarray(indata, dtype=np.float32).copy()
+        self.audio_q.append(data)
+        try:
+            self.audio_blocks_received += 1
+            self.audio_last_callback_at = time.time()
+            self.audio_rms = float(np.sqrt(np.mean(np.square(data), dtype=np.float64)))
+            self.audio_peak = float(np.max(np.abs(data))) if data.size else 0.0
+        except (TypeError, ValueError):
+            pass
 
     def _candidate_input_rates(self, device_override=None) -> tuple[int, list[int], int, str, object]:
         """Build a deterministic list of rates to try for a Windows input device."""
@@ -684,6 +708,9 @@ class STTService:
                     audio = source_audio
 
                 try:
+                    transcribe_started = time.monotonic()
+                    self.transcribe_attempts += 1
+                    self.last_transcribe_at = time.time()
                     segments, info = self.model.transcribe(
                         audio,
                         language=self.config.language or None,
@@ -708,6 +735,8 @@ class STTService:
                         end = seg.end if end is None else max(end, seg.end)
 
                     text = " ".join(texts).strip()
+                    self.last_transcribe_duration = time.monotonic() - transcribe_started
+                    self.last_transcribe_result = "текст получен" if text else "текста нет"
                     if text:
                         detected_language = getattr(info, "language", self.config.language) or self.config.language
                         ts = time.time()
