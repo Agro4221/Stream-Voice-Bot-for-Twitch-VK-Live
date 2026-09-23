@@ -929,9 +929,23 @@ async function saveStt(){
       : 'STT настройки сохранены.';
     if(x.restart_required){
       try{
+        document.getElementById('sttInfo').textContent='Старый STT останавливается, затем запускаю новую конфигурацию…';
+        const deadline=Date.now()+120000;
+        let stopped=false;
+        while(Date.now()<deadline){
+          const state=await api('/api/state');
+          if(!state.stt?.running && !state.stt?.model_loading && !state.stt?.audio_last_callback_at){
+            stopped=true;
+            break;
+          }
+          await new Promise(resolve=>setTimeout(resolve,300));
+        }
+        if(!stopped){
+          throw new Error('старый STT ещё не остановился');
+        }
         await api('/api/stt/start',{method:'POST'});
       }catch(e){
-        document.getElementById('sttInfo').textContent='Настройки сохранены, но STT не запустился: '+e.message;
+        document.getElementById('sttInfo').textContent='Настройки сохранены, но STT не перезапустился: '+e.message;
       }
     }
     refresh();
