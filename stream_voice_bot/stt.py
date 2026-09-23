@@ -212,7 +212,7 @@ class STTService:
             )
 
     def _gpu_runtime_path(self) -> Path:
-        data_root = self.db.data_path.parent if hasattr(self.db, "data_path") else Path.cwd() / "data"
+        data_root = self.db.path.parent if hasattr(self.db, "path") else Path.cwd() / "data"
         runtime_dir = Path(data_root) / "gpu_runtime"
         runtime_dir.mkdir(parents=True, exist_ok=True)
         self.gpu_runtime_dir = runtime_dir
