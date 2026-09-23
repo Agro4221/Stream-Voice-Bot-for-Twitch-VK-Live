@@ -512,7 +512,15 @@ class STTService:
         if status:
             self._emit(running=True, message=f"Audio input: {status}")
         if getattr(indata, "ndim", 1) > 1:
-            data = indata[:, 0].copy()
+            matrix = np.asarray(indata, dtype=np.float32)
+            if matrix.shape[1] > 1:
+                # USB interfaces sometimes expose the physical mic on the
+                # second channel. Select the channel with the strongest signal
+                # for this block instead of always using channel 0.
+                channel_energy = np.mean(np.square(matrix, dtype=np.float64), axis=0)
+                data = matrix[:, int(np.argmax(channel_energy))].copy()
+            else:
+                data = matrix[:, 0].copy()
         else:
             data = np.asarray(indata, dtype=np.float32).copy()
         self.audio_q.append(data)
@@ -579,9 +587,7 @@ class STTService:
         for device_override in device_candidates:
             requested, rates, max_input_channels, hostapi_name, actual_device = self._candidate_input_rates(device_override)
             is_wasapi = "WASAPI" in hostapi_name.upper()
-            channels = [1]
-            if max_input_channels >= 2:
-                channels.append(2)
+            channels = [2, 1] if max_input_channels >= 2 else [1]
 
             extra_settings_variants = [None]
             if is_wasapi and hasattr(sd, "WasapiSettings"):
