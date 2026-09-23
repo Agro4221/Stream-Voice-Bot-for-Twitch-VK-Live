@@ -253,9 +253,9 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     except Exception:
         subtitle_tracks = default_subtitle_tracks
     _SUBTITLE_CREDIT_RE = re.compile(
-        r"(?:\\bsubtitles?\\s+(?:made|created|provided)\\s+by\\b|"
-        r"\\b(?:субтитры|субтитров)\\s+(?:сделаны|сделано|созданы|создано|предоставлены)\\b|"
-        r"\\bdima\\s*torzok\\b)",
+        r"(?:\bsubtitles?\s+(?:made|created|provided)\s+by\b|"
+        r"\b(?:субтитры|субтитров)\s+(?:сделаны|сделано|созданы|создано|предоставлены)\b|"
+        r"\bdima\s*torzok\b)",
         re.IGNORECASE,
     )
 
