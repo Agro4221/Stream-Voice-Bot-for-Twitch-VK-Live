@@ -321,11 +321,20 @@ class STTService:
                 "gpu-runtime-extract",
                 "Распаковываю GPU runtime для STT…",
             )
+            tar_kwargs = {
+                "capture_output": True,
+                "text": True,
+                "timeout": 300,
+            }
+            if sys.platform == "win32":
+                tar_kwargs["creationflags"] = getattr(
+                    subprocess,
+                    "CREATE_NO_WINDOW",
+                    0x08000000,
+                )
             proc = subprocess.run(
                 ["tar", "-xf", str(archive_path), "-C", str(extract_dir)],
-                capture_output=True,
-                text=True,
-                timeout=300,
+                **tar_kwargs,
             )
             if proc.returncode != 0:
                 detail = (proc.stderr or proc.stdout or "").strip()
