@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import sounddevice as sd
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
