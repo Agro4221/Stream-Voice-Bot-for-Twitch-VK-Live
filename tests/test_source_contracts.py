@@ -132,7 +132,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertNotIn("huggingface_hub", stt)
         self.assertNotIn("faster-whisper", requirements)
         self.assertNotIn("ctranslate2", requirements)
-        self.assertIn("sherpa-onnx==1.13.7", requirements)
+        self.assertIn("sherpa-onnx==1.13.8", requirements)
 
     def test_stt_status_reports_backend(self):
         stt = self.read("stream_voice_bot/stt.py")
