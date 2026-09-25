@@ -174,13 +174,22 @@ if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed" }
 # sherpa-onnx, which keeps the TTS stack smaller and avoids unnecessary CUDA
 # conflicts with the speech recognizer.
 $torchOk = $false
+$torchNeedsCpu = $false
 try {
-    & $venvPython -c "import torch; print(torch.__version__)" 2>$null | Out-Null
+    & $venvPython -c "import torch,sys; print(torch.__version__); print(torch.version.cuda or '')" 2>$null | Out-Null
     $torchOk = ($LASTEXITCODE -eq 0)
+    if ($torchOk) {
+        $torchCuda = & $venvPython -c "import torch; print(torch.version.cuda or '')" 2>$null
+        $torchNeedsCpu = -not [string]::IsNullOrWhiteSpace($torchCuda)
+    }
 } catch {}
-if (-not $torchOk) {
-    Write-Host "Installing CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
-    & $venvPython -m pip install torch==2.10.0
+if (-not $torchOk -or $torchNeedsCpu) {
+    if ($torchNeedsCpu) {
+        Write-Host "Replacing CUDA PyTorch with CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
+    } else {
+        Write-Host "Installing CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
+    }
+    & $venvPython -m pip install --upgrade --force-reinstall torch==2.10.0
     if ($LASTEXITCODE -ne 0) { throw "PyTorch installation failed" }
 }
 
