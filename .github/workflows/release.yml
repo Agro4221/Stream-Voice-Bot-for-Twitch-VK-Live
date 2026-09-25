@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Read release version
         id: version
@@ -40,7 +42,7 @@ jobs:
               "repos/${{ github.repository }}/contents/VERSION?ref=$head_sha" \
               --jq '.content' | base64 -d | tr -d '\r\n')"
 
-            if [ "$candidate_version" = "$version" ]; then
+            if [ "$candidate_version" = "$version" ] && git merge-base --is-ancestor "$head_sha" "${{ github.sha }}"; then
               candidate_run="$run_id"
               break
             fi
@@ -56,8 +58,10 @@ jobs:
           )
 
           test -n "$candidate_run"
+          candidate_head_sha="$(gh run view "$candidate_run" --repo "${{ github.repository }}" --json headSha --jq '.headSha')"
           echo "run_id=$candidate_run" >> "$GITHUB_OUTPUT"
-          echo "Using successful Windows candidate run: $candidate_run for version $version"
+          echo "head_sha=$candidate_head_sha" >> "$GITHUB_OUTPUT"
+          echo "Using successful Windows candidate run: $candidate_run for version $version at commit $candidate_head_sha (ancestor of ${{ github.sha }})"
 
       - name: Download tested Windows candidate
         env:
