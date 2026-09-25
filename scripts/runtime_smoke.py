@@ -185,11 +185,11 @@ def main() -> None:
             self.rows = {}
             self.lock = threading.Lock()
 
-        def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
+        def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued", external_event_id=None):
             with self.lock:
                 hid = self.next_id
                 self.next_id += 1
-                self.rows[hid] = {"id": hid, "status": status}
+                self.rows[hid] = {"id": hid, "status": status, "external_event_id": external_event_id}
                 return hid
 
         def set_history_status(self, hid, status, duration_sec=None):
