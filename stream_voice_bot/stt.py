@@ -109,6 +109,8 @@ class STTService:
         self.lock = threading.RLock()
 
         self.audio_q: deque[np.ndarray] = deque(maxlen=200)
+        self.publish_sequence = 0
+        self.translation_latest: dict[str, int] = {}
         self.last_text = ""
         self.last_published_text = ""
         self.last_publish_at = 0.0
@@ -803,6 +805,9 @@ class STTService:
         if not normalized or _should_skip_segment(None, normalized):
             return
         ts = time.time()
+        with self.lock:
+            self.publish_sequence += 1
+            sequence = self.publish_sequence
         self.on_subtitle(
             {
                 "source": True,
@@ -811,6 +816,7 @@ class STTService:
                 "end": None,
                 "language": self.config.language or "ru",
                 "timestamp": ts,
+                "sequence": sequence,
             }
         )
         tracks = self.get_subtitle_tracks()
@@ -819,32 +825,41 @@ class STTService:
         for track in tracks:
             if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
                 continue
+            track_id = str(track.get("id", target_language)).strip().lower()
             target_language = str(track.get("language", "")).strip().lower().split("-")[0]
             source_language = (self.config.language or "ru").lower().split("-")[0]
             if not target_language or target_language == source_language:
                 continue
+            with self.lock:
+                self.translation_latest[track_id] = sequence
 
             def translate_one(
-                track_id=track.get("id", target_language),
+                track_id=track_id,
                 target=target_language,
                 source_text=normalized,
                 source_language=source_language,
                 timestamp=ts,
+                sequence_id=sequence,
             ):
                 try:
                     translated = self.translator.translate(source_text, source_language, target)
-                    if translated:
-                        self.on_subtitle(
-                            {
-                                "source": False,
-                                "track_id": track_id,
-                                "text": _normalize_text(translated),
-                                "start": None,
-                                "end": None,
-                                "language": target,
-                                "timestamp": timestamp,
-                            }
-                        )
+                    if not translated:
+                        return
+                    with self.lock:
+                        if self.translation_latest.get(track_id) != sequence_id:
+                            return
+                    self.on_subtitle(
+                        {
+                            "source": False,
+                            "track_id": track_id,
+                            "text": _normalize_text(translated),
+                            "start": None,
+                            "end": None,
+                            "language": target,
+                            "timestamp": timestamp,
+                            "sequence": sequence_id,
+                        }
+                    )
                 except Exception as e:
                     self._emit(
                         running=True,
