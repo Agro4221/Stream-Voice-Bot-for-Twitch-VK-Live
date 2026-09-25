@@ -93,6 +93,46 @@ class StabilityDatabaseTests(unittest.TestCase):
                 stt_module.sd = real_sd
 
 
+    def test_stt_invalid_saved_device_falls_back_to_default_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            service.config.input_device = 99
+
+            class FakeStream:
+                samplerate = 48000
+                def __init__(self):
+                    self.closed = False
+                def start(self):
+                    return None
+                def close(self):
+                    self.closed = True
+
+            class FakeSD:
+                def query_devices(self, device=None, kind=None):
+                    if device == 99:
+                        raise RuntimeError("No such device")
+                    return {
+                        "default_samplerate": 48000,
+                        "max_input_channels": 1,
+                        "name": "Default mic",
+                        "hostapi": 0,
+                    }
+                def query_hostapis(self, index):
+                    return {"name": "Windows DirectSound"}
+                def InputStream(self, **kwargs):
+                    return FakeStream()
+
+            real_sd = stt_module.sd
+            try:
+                stt_module.sd = FakeSD()
+                stream, rate = service._open_input_stream()
+                self.assertEqual(rate, 48000)
+                stream.close()
+            finally:
+                stt_module.sd = real_sd
+
+
     def test_stt_uses_wasapi_auto_convert_for_shared_format(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
@@ -149,7 +189,7 @@ class StabilityDatabaseTests(unittest.TestCase):
             def __init__(self):
                 self.rows = {}
 
-            def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
+            def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued", external_event_id=None):
                 hid = len(self.rows) + 1
                 self.rows[hid] = status
                 return hid
@@ -211,6 +251,79 @@ class StabilityDatabaseTests(unittest.TestCase):
             queue.shutdown()
 
 
+    def test_legacy_history_schema_gets_external_event_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-history.sqlite3"
+            import sqlite3
+            conn = sqlite3.connect(path)
+            conn.execute("""
+                CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    queued_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    duration_sec REAL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    repeat_of INTEGER,
+                    profile TEXT DEFAULT 'normal'
+                )
+            """)
+            conn.commit()
+            conn.close()
+
+            db = Database(path)
+            first = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:00", external_event_id="twitch:legacy")
+            second = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:01", external_event_id="twitch:legacy")
+            self.assertEqual(first, second)
+
+    def test_legacy_chat_messages_get_duplicate_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-chat-duplicates.sqlite3"
+            import sqlite3
+            conn = sqlite3.connect(path)
+            conn.execute("""
+                CREATE TABLE chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL DEFAULT 'twitch',
+                    username TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "INSERT INTO chat_messages(platform, username, text, created_at) VALUES(?,?,?,?)",
+                ("vkplay", "u", "hello", "2026-09-20T07:00:00"),
+            )
+            conn.execute(
+                "INSERT INTO chat_messages(platform, username, text, created_at) VALUES(?,?,?,?)",
+                ("vkplay", "u", "hello", "2026-09-20T07:00:01"),
+            )
+            conn.commit()
+            conn.close()
+
+            Database(path)
+            with sqlite3.connect(path) as check:
+                count = check.execute(
+                    "SELECT COUNT(*) FROM chat_messages WHERE platform='vkplay' AND message_id IS NULL"
+                ).fetchone()[0]
+            self.assertEqual(count, 2)
+
+            db = Database(path)
+            db.save_chat_message(
+                "vkplay", "42", "channel", "", "", "Jostik",
+                "Привет", "2026-09-20T07:00:02", "{}"
+            )
+            self.assertIsNone(
+                db.save_chat_message(
+                    "vkplay", "42", "channel", "", "", "Jostik",
+                    "Привет ещё раз", "2026-09-20T07:00:03", "{}"
+                )
+            )
+
     def test_legacy_chat_messages_schema_is_migrated(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.sqlite3"
@@ -247,6 +360,39 @@ class StabilityDatabaseTests(unittest.TestCase):
         self.assertTrue(any(item["message"] == "runtime-log-test" for item in logs))
         log_buffer.clear()
         self.assertEqual(log_buffer.get_logs(10), [])
+
+    def test_durable_event_inbox_is_first_delivery_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            payload = '{"id":"abc"}'
+            self.assertTrue(db.record_event("twitch:abc", "twitch", "redemption", payload))
+            self.assertFalse(db.record_event("twitch:abc", "twitch", "redemption", payload))
+            pending = db.pending_events()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["event_key"], "twitch:abc")
+            db.mark_event_done("twitch:abc")
+            self.assertEqual(db.pending_events(), [])
+
+    def test_history_external_event_id_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            first = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:00", external_event_id="twitch:abc")
+            second = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:01", external_event_id="twitch:abc")
+            self.assertEqual(first, second)
+            self.assertEqual(len(db.history(100)), 1)
+
+    def test_clear_history_keeps_pending_event_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            self.assertTrue(db.record_event("twitch:abc", "twitch", "redemption", '{"id":"abc"}'))
+            hid = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:00", status="finished", external_event_id="twitch:abc")
+            removed = db.clear_history()
+            self.assertEqual(removed, 0)
+            self.assertIsNotNone(db.get_history(hid))
+            db.mark_event_done("twitch:abc")
+            removed = db.clear_history()
+            self.assertEqual(removed, 1)
+            self.assertIsNone(db.get_history(hid))
 
     def test_event_claim_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:

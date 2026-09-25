@@ -80,7 +80,10 @@ class StabilitySourceContractTests(unittest.TestCase):
     def test_app_and_db_stability_contract(self):
         app = self.read("stream_voice_bot/app.py")
         db = self.read("stream_voice_bot/db.py")
-        self.assertIn('db.claim_event("twitch:" + str(dedupe_id))', app)
+        self.assertIn("def on_redemption(event: dict, recovery: bool = False):", app)
+        self.assertIn("db.record_event(event_key, \"twitch\", \"channel_points_redemption\", payload)", app)
+        self.assertIn("async def recover_pending_event_inbox", app)
+        self.assertIn("async def reconcile_twitch_unfulfilled", app)
         self.assertIn("Normal Twitch chat is intentionally ignored", app)
         self.assertIn("from .models import QueueItem, utc_now", app)
         self.assertIn('QueueItem(text, username, "vkplay-reward", created_at=created_at)', app)
@@ -126,6 +129,12 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn('last_error=f"{type(e).__name__}: {e}"', stt)
         self.assertIn("очень низкий уровень сигнала", web)
         self.assertIn('disabled><option>float16</option><option>int8</option>', web)
+
+    def test_stt_loader_restart_waits_for_inflight_start(self):
+        src = self.read("stream_voice_bot/app.py")
+        self.assertIn("loading = bool(stt.start_thread and stt.start_thread.is_alive())", src)
+        self.assertIn("if stt.stop_event.is_set():", src)
+        self.assertIn("Предыдущая загрузка STT ещё не остановилась", src)
 
     def test_stt_runtime_diagnostics_and_restart_contract(self):
         stt = self.read("stream_voice_bot/stt.py")
@@ -180,7 +189,9 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("while self.audio_q:", src)
         self.assertIn("self.translator.translate(", src)
         self.assertIn("source_text, source_language, target", src)
-        self.assertIn("stt-translate-", src)
+        self.assertIn("ThreadPoolExecutor(", src)
+        self.assertIn('thread_name_prefix="stt-translate"', src)
+        self.assertIn("max_workers=2", src)
         self.assertIn('self.runtime_device = "cpu"', src)
         self.assertIn('device = "cuda"', src)
         self.assertIn('device_mode: str = "auto"', src)

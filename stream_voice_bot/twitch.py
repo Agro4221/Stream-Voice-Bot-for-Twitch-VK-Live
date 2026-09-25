@@ -56,6 +56,7 @@ class TwitchService:
         self.running = False
         self.connected = False
         self.identity: TwitchIdentity | None = None
+        self._refresh_lock = asyncio.Lock()
 
     def client_id(self) -> str:
         return self.db.get_setting("twitch_client_id", "") or ""
@@ -174,27 +175,32 @@ class TwitchService:
         self.db.set_setting("twitch_token_updated_at", str(time.time()))
         await self.identify()
 
-    async def refresh_access_token(self):
-        rt = self.refresh_token()
-        if not rt:
-            raise RuntimeError("No Twitch refresh token")
-        params = {
-            "client_id": self.client_id(),
-            "grant_type": "refresh_token",
-            "refresh_token": rt,
-        }
-        if self.client_secret():
-            params["client_secret"] = self.client_secret()
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(OAUTH_TOKEN, data=params)
-            r.raise_for_status()
-            data = r.json()
+    async def refresh_access_token(self, stale_access_token: str | None = None):
+        async with self._refresh_lock:
+            current = self.access_token()
+            if stale_access_token and current and current != stale_access_token:
+                return current
 
-        self.secrets.set("twitch_access_token", data["access_token"])
-        if data.get("refresh_token"):
-            self.secrets.set("twitch_refresh_token", data["refresh_token"])
-        self.db.set_setting("twitch_scopes", json.dumps(data.get("scope", []), ensure_ascii=False))
-        return data["access_token"]
+            rt = self.refresh_token()
+            if not rt:
+                raise RuntimeError("No Twitch refresh token")
+            params = {
+                "client_id": self.client_id(),
+                "grant_type": "refresh_token",
+                "refresh_token": rt,
+            }
+            if self.client_secret():
+                params["client_secret"] = self.client_secret()
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.post(OAUTH_TOKEN, data=params)
+                r.raise_for_status()
+                data = r.json()
+
+            self.secrets.set("twitch_access_token", data["access_token"])
+            if data.get("refresh_token"):
+                self.secrets.set("twitch_refresh_token", data["refresh_token"])
+            self.db.set_setting("twitch_scopes", json.dumps(data.get("scope", []), ensure_ascii=False))
+            return data["access_token"]
 
     async def _api(self, method: str, path: str, *, params=None, json_data=None):
         token = self.access_token()
@@ -210,7 +216,7 @@ class TwitchService:
                 json=json_data,
             )
             if r.status_code == 401:
-                token = await self.refresh_access_token()
+                token = await self.refresh_access_token(token)
                 headers["Authorization"] = f"Bearer {token}"
                 r = await client.request(
                     method,
@@ -237,7 +243,7 @@ class TwitchService:
             if r.status_code == 200:
                 return True
             if r.status_code == 401 and self.refresh_token():
-                await self.refresh_access_token()
+                await self.refresh_access_token(token)
                 return True
             return False
 
@@ -307,6 +313,30 @@ class TwitchService:
             "/channel_points/custom_rewards",
             params={"broadcaster_id": self.identity.user_id},
         )
+
+    async def get_unfulfilled_redemptions(self, reward_id: str, first: int = 50):
+        if not self.identity:
+            await self.identify()
+        params = {
+            "broadcaster_id": self.identity.user_id,
+            "reward_id": reward_id,
+            "status": "UNFULFILLED",
+            "first": max(1, min(int(first), 50)),
+        }
+        items = []
+        cursor = None
+        while True:
+            if cursor:
+                params["after"] = cursor
+            data = await self._api(
+                "GET",
+                "/channel_points/custom_rewards/redemptions",
+                params=params,
+            )
+            items.extend(data.get("data", []))
+            cursor = (data.get("pagination") or {}).get("cursor")
+            if not cursor or len(items) >= 500:
+                return items
 
     async def update_redemption(self, reward_id: str, redemption_id: str, status: str):
         if not self.identity:

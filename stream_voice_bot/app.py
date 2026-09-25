@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import httpx
 import html
 import json
 import logging
 import math
 import re
+import secrets
 import platform
 import shutil
 import threading
@@ -16,7 +18,7 @@ from urllib.parse import urlparse
 
 import sounddevice as sd
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .db import Database
@@ -167,6 +169,18 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     log.info("Admin backend initialized (version=%s)", app_version)
     data_dir = (data_root or root) / "data"
     db = Database(data_dir / "stream_voice_bot.sqlite3")
+    local_api_token = db.get_setting("local_api_token", "") or ""
+    if len(local_api_token) < 32:
+        local_api_token = secrets.token_urlsafe(32)
+        db.set_setting("local_api_token", local_api_token)
+
+    @app.middleware("http")
+    async def local_mutation_guard(request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            supplied = request.headers.get("X-StreamVoiceBot-Local", "")
+            if not supplied or not secrets.compare_digest(supplied, local_api_token):
+                return JSONResponse({"detail": "Local admin authorization required"}, status_code=403)
+        return await call_next(request)
 
     model_path = find_model(root) or (root / "models" / "v5_ru.pt")
     db.set_setting("model_path", "models/v5_ru.pt")
@@ -211,6 +225,15 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     speed = float(db.get_setting("speed", "1.0"))
     max_chars = int(db.get_setting("max_chars", "300"))
     output_device = int(db.get_setting("output_device")) if db.get_setting("output_device") else None
+    saved_output_device_name = db.get_setting("output_device_name", "") or ""
+    if saved_output_device_name:
+        try:
+            for idx, device_info in enumerate(sd.query_devices()):
+                if int(device_info.get("max_output_channels", 0)) > 0 and str(device_info.get("name", "")) == saved_output_device_name:
+                    output_device = idx
+                    break
+        except Exception:
+            log.exception("Could not restore saved audio output device by name")
 
     profiles = {
         "normal": {"speaker": normal_speaker, "volume_db": normal_volume},
@@ -286,6 +309,9 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     }
 
     device_task: asyncio.Task | None = None
+    event_recovery_task: asyncio.Task | None = None
+    twitch_reconcile_task: asyncio.Task | None = None
+    twitch_fulfillment_tasks: dict[str, asyncio.Task] = {}
     vk_recent_chat: dict[tuple[str, str], float] = {}
     vk_recent_reward: dict[tuple[str, str], float] = {}
     VK_REWARD_DEDUPE_SECONDS = 30.0
@@ -355,7 +381,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         # spoken as if it were a reward.
         return
 
-    def on_vk_chat(event: dict):
+    def on_vk_chat(event: dict, recovery: bool = False):
         # The readonly VK client receives ordinary viewer messages too.
         # Only ChatBot system messages are allowed to reach the reward parser.
         if not bool(event.get("is_chatbot")):
@@ -365,23 +391,27 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         if not raw_text:
             return
 
-        # VK exposes the reward as a system chat announcement such as:
-        # "ChatBot: User получает награду: Озвучить сообщение за 2: текст".
-        # Ordinary viewer messages are never TTS input.
         reward = parse_vk_reward_announcement(raw_text)
         if not reward:
             return
 
-        message_id = event.get("id")
-        if message_id and not db.claim_event("vk:" + str(message_id)):
-            return
+        message_id = str(event.get("id") or "").strip()
+        stable_id = message_id or (
+            f"{event.get('created_at', '')}:{reward['username']}:{reward['text']}"
+        )
+        event_key = "vk:" + stable_id
+
+        if not recovery:
+            payload = json.dumps(event, ensure_ascii=False)
+            if not db.record_event(event_key, "vkplay", "reward", payload):
+                return
 
         username = reward["username"]
         text = reward["text"]
         created_at = utc_now()
         db.save_chat_message(
             platform="vkplay",
-            message_id=message_id,
+            message_id=message_id or None,
             broadcaster_user_id=db.get_setting("vkplay_channel_id", ""),
             broadcaster_login="",
             user_id="",
@@ -391,18 +421,35 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             raw_json=json.dumps(event, ensure_ascii=False),
         )
         try:
-            queue.enqueue(
-                QueueItem(text, username, "vkplay-reward", created_at=created_at),
-                profile="normal",
-            )
+            existing = db.get_history_by_external_event_id(event_key) if recovery else None
+            if existing:
+                terminal = existing["status"] in {"finished", "stopped", "skipped", "cleared", "error", "audio_error"}
+                queue_state = queue.state()
+                current_id = (queue_state.get("current") or {}).get("history_id")
+                queued_ids = {item.get("history_id") for item in (queue_state.get("queued") or [])}
+                if terminal:
+                    db.mark_event_done(event_key)
+                    return
+                if current_id == existing["id"] or existing["id"] in queued_ids:
+                    return
+                history_id = queue.enqueue(
+                    QueueItem(text, username, "vkplay-reward", created_at=created_at),
+                    history_id=existing["id"],
+                    profile="normal",
+                    event_key=event_key,
+                )
+            else:
+                history_id = queue.enqueue(
+                    QueueItem(text, username, "vkplay-reward", created_at=created_at),
+                    profile="normal",
+                    event_key=event_key,
+                )
+            db.mark_event_queued(event_key, history_id)
             vk_status["last_event"] = f"VK награда: {username}"
             vk_status["message"] = "Награда принята в очередь озвучки."
             log.info("VK reward queued: user=%s", username)
         except Exception as e:
-            db.add_history(
-                username, text, "vkplay-reward", created_at,
-                status="received", profile="normal",
-            )
+            db.mark_event_failed(event_key, e)
             log.exception("VK reward could not be queued: %s", e)
 
     def on_vk_status(data: dict):
@@ -411,112 +458,167 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         if message:
             log.info("VK: %s", message)
 
-    def on_redemption(event: dict):
-        # Twitch Channel Points handling is deliberately simple: one reward
-        # named "Озвучить сообщение" feeds its viewer-entered text into TTS.
+    def on_redemption(event: dict, recovery: bool = False):
         if (event.get("status") or "").lower() not in {"", "unfulfilled"}:
             return
 
-        redemption_id = event.get("id", "")
-        eventsub_id = event.get("_eventsub_message_id")
+        redemption_id = str(event.get("id") or "").strip()
+        eventsub_id = str(event.get("_eventsub_message_id") or "").strip()
         reward = event.get("reward", {}) or {}
-        reward_id = reward.get("id", "")
+        reward_id = str(reward.get("id") or "").strip()
         reward_title = str(reward.get("title") or "").strip()
         username = event.get("user_name", "unknown")
         user_input = (event.get("user_input") or "").strip()
+
+        configured_voice_reward_id = db.get_setting("twitch_voice_reward_id", "") or ""
+        is_voice_reward = (
+            bool(configured_voice_reward_id) and reward_id == configured_voice_reward_id
+        ) or (
+            not configured_voice_reward_id and reward_title.casefold() == "озвучить сообщение"
+        )
+        if not is_voice_reward:
+            return
+
+        event_key = "twitch:" + (
+            "redemption:" + redemption_id
+            if redemption_id
+            else eventsub_id
+        )
+        if not recovery:
+            payload = json.dumps(event, ensure_ascii=False)
+            if not db.record_event(event_key, "twitch", "channel_points_redemption", payload):
+                return
 
         twitch_status["last_event"] = (
             f"Channel Points: {username} → {reward_title or reward_id or 'неизвестная награда'}"
         )
 
-        if reward_title.casefold() != "озвучить сообщение":
-            twitch_status["message"] = (
-                f"Награда «{reward_title or reward_id}» пропущена. "
-                "Озвучивается только «Озвучить сообщение»."
-            )
-            log.info(
-                "Twitch redemption ignored: reward is not the voice reward; "
-                "user=%s reward=%s (%s)",
-                username, reward_title, reward_id,
-            )
-            return
-
-        dedupe_id = eventsub_id or ("redemption:" + str(redemption_id) if redemption_id else "")
-        if dedupe_id and not db.claim_event("twitch:" + str(dedupe_id)):
-            return
-
         if not user_input:
-            twitch_status["message"] = (
-                "Награда «Озвучить сообщение» получена без текста — отменяю."
-            )
-            log.info(
-                "Twitch redemption canceled: missing viewer text; user=%s reward=%s",
-                username, reward_title,
-            )
-            asyncio.create_task(
-                twitch.update_redemption(reward_id, redemption_id, "CANCELED")
-            )
+            twitch_status["message"] = "Награда получена без текста — отменяю."
+            async def cancel_missing_text():
+                try:
+                    await twitch.update_redemption(reward_id, redemption_id, "CANCELED")
+                except Exception as exc:
+                    db.mark_event_failed(event_key, exc)
+                    log.exception("Could not cancel empty Twitch redemption: %s", exc)
+                else:
+                    db.mark_event_done(event_key)
+            asyncio.create_task(cancel_missing_text())
             return
 
         try:
-            item = QueueItem(user_input, username, "twitch-channel-points")
-            history_id = queue.enqueue(item, profile="normal")
+            existing = db.get_history_by_external_event_id(event_key) if recovery else None
+            if existing:
+                terminal = existing["status"] in {"finished", "stopped", "skipped", "cleared"}
+                queue_state = queue.state()
+                current_id = (queue_state.get("current") or {}).get("history_id")
+                queued_ids = {item.get("history_id") for item in (queue_state.get("queued") or [])}
+                if terminal:
+                    schedule_twitch_fulfillment(existing["id"], reward_id, redemption_id, event_key)
+                    return
+                if current_id == existing["id"] or existing["id"] in queued_ids:
+                    schedule_twitch_fulfillment(existing["id"], reward_id, redemption_id, event_key)
+                    return
+                history_id = queue.enqueue(
+                    QueueItem(user_input, username, "twitch-channel-points"),
+                    history_id=existing["id"],
+                    profile="normal",
+                    event_key=event_key,
+                )
+            else:
+                history_id = queue.enqueue(
+                    QueueItem(user_input, username, "twitch-channel-points"),
+                    profile="normal",
+                    event_key=event_key,
+                )
+            db.mark_event_queued(event_key, history_id)
             twitch_status["message"] = (
                 f"Channel Points: {username} → «Озвучить сообщение» добавлено в очередь."
             )
-            asyncio.create_task(
-                fulfill_after(history_id, reward_id, redemption_id)
-            )
+            schedule_twitch_fulfillment(history_id, reward_id, redemption_id, event_key)
         except Exception as e:
-            history_id = db.add_history(
-                username,
-                user_input,
-                "twitch-channel-points",
-                time.strftime("%Y-%m-%dT%H:%M:%S"),
-                status="error",
-                profile="normal",
-            )
+            db.mark_event_failed(event_key, e)
             log.exception("Twitch redemption could not be queued: %s", e)
-            asyncio.create_task(
-                fulfill_after(history_id, reward_id, redemption_id)
-            )
 
-    async def fulfill_after(history_id: int, reward_id: str, redemption_id: str):
-        # Fulfill once the TTS item reaches a terminal state. We poll SQLite,
-        # avoiding coupling Twitch's async client to the TTS worker thread.
-        for _ in range(600):
-            row = db.get_history(history_id)
+    async def fulfill_after(history_id: int, reward_id: str, redemption_id: str, event_key: str):
+        # Keep polling durable history state; DB work stays off the async event loop.
+        while True:
+            row = await asyncio.to_thread(db.get_history, history_id)
             if row and row["status"] in {"finished", "stopped", "skipped", "cleared", "audio_error", "error"}:
                 status = "FULFILLED" if row["status"] == "finished" else "CANCELED"
                 for attempt in range(3):
                     try:
                         await twitch.update_redemption(reward_id, redemption_id, status)
+                        await asyncio.to_thread(db.mark_event_done, event_key)
                         return
-                    except httpx.HTTPStatusError as e:
-                        if e.response is not None and e.response.status_code == 403:
+                    except Exception as e:
+                        if isinstance(e, httpx.HTTPStatusError) and e.response is not None and e.response.status_code == 403:
                             log.warning(
-                                "Twitch redemption was spoken, but auto-fulfill is forbidden "
-                                "for this reward. Twitch only allows the app that created the "
-                                "reward to update its redemption status."
+                                "Twitch redemption status update forbidden; treating the redemption as terminal."
                             )
+                            await asyncio.to_thread(db.mark_event_done, event_key)
                             return
                         if attempt == 2:
-                            log.exception(
-                                "Twitch redemption update failed after retries: %s",
-                                e,
-                            )
-                        else:
-                            await asyncio.sleep(1.5 * (attempt + 1))
-                    except Exception as e:
-                        if attempt == 2:
-                            log.exception(
-                                "Twitch redemption update failed after retries: %s",
-                                e,
-                            )
-                        else:
-                            await asyncio.sleep(1.5 * (attempt + 1))
-                return
+                            log.exception("Twitch redemption update failed after retries: %s", e)
+                            await asyncio.to_thread(db.mark_event_failed, event_key, e)
+                            return
+                        await asyncio.sleep(1.5 * (attempt + 1))
             await asyncio.sleep(0.5)
+
+    def schedule_twitch_fulfillment(history_id: int, reward_id: str, redemption_id: str, event_key: str):
+        existing_task = twitch_fulfillment_tasks.get(event_key)
+        if existing_task and not existing_task.done():
+            return existing_task
+
+        task = asyncio.create_task(
+            fulfill_after(history_id, reward_id, redemption_id, event_key),
+            name=f"twitch-fulfillment-{event_key[-40:]}",
+        )
+        twitch_fulfillment_tasks[event_key] = task
+
+        def _cleanup(done_task: asyncio.Task):
+            if twitch_fulfillment_tasks.get(event_key) is done_task:
+                twitch_fulfillment_tasks.pop(event_key, None)
+            if not done_task.cancelled():
+                try:
+                    done_task.result()
+                except Exception:
+                    log.exception("Twitch fulfillment task failed for %s", event_key)
+
+        task.add_done_callback(_cleanup)
+        return task
+
+    async def recover_pending_event_inbox(include_queued: bool = True):
+        rows = await asyncio.to_thread(db.pending_events, 500, include_queued)
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+                if row["platform"] == "twitch":
+                    on_redemption(payload, recovery=True)
+                elif row["platform"] == "vkplay":
+                    on_vk_chat(payload, recovery=True)
+            except Exception as exc:
+                await asyncio.to_thread(db.mark_event_failed, row["event_key"], exc)
+                log.exception("Durable event recovery failed for %s: %s", row["event_key"], exc)
+
+    async def reconcile_twitch_unfulfilled():
+        if not twitch.configured() or not twitch.access_token():
+            return
+        rewards = await twitch.get_custom_rewards()
+        voice_id = db.get_setting("twitch_voice_reward_id", "") or ""
+        selected = next((r for r in rewards.get("data", []) if r.get("id") == voice_id), None)
+        if selected is None:
+            selected = next(
+                (r for r in rewards.get("data", []) if str(r.get("title") or "").strip().casefold() == "озвучить сообщение"),
+                None,
+            )
+        if selected:
+            voice_id = str(selected.get("id") or "")
+            if voice_id:
+                db.set_setting("twitch_voice_reward_id", voice_id)
+            redemptions = await twitch.get_unfulfilled_redemptions(voice_id)
+            for redemption in redemptions:
+                on_redemption(redemption)
 
     twitch = TwitchService(db, on_twitch_chat, on_redemption, on_twitch_status)
     vkplay = VKPlayService(db, on_vk_chat, on_vk_status)
@@ -524,6 +626,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     # Completion callback is kept lightweight. Twitch fulfillment polls DB.
     app.state.db = db
+    app.state.local_api_token = local_api_token
     app.state.tts_model = model
     app.state.tts_queue = queue
     app.state.player = player
@@ -535,12 +638,31 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     app.state.subtitle_state = subtitle_state
     app.state.subtitle_tracks = subtitle_tracks
 
+    async def _event_recovery_loop():
+        while True:
+            await recover_pending_event_inbox(include_queued=True)
+            await asyncio.sleep(30)
+
+    async def _twitch_reconcile_loop():
+        while True:
+            await asyncio.sleep(60)
+            try:
+                if twitch.connected:
+                    await reconcile_twitch_unfulfilled()
+            except Exception as exc:
+                log.exception("Twitch reconciliation failed: %s", exc)
+
     @app.on_event("startup")
     async def startup():
         log.info("Bot startup")
+        nonlocal event_recovery_task, twitch_reconcile_task
         try:
             if twitch.configured() and await twitch.validate_token():
                 await twitch.start()
+                try:
+                    await reconcile_twitch_unfulfilled()
+                except Exception as exc:
+                    log.exception("Initial Twitch redemption reconciliation failed: %s", exc)
         except Exception as e:
             twitch_status["connected"] = False
             twitch_status["message"] = f"Автоподключение Twitch: {type(e).__name__}: {e}"
@@ -552,11 +674,28 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             vk_status["connected"] = False
             vk_status["message"] = f"Автоподключение VK: {type(e).__name__}: {e}"
             log.exception("VK auto-connect failed")
+        await recover_pending_event_inbox()
+        db.prune_event_inbox()
+        event_recovery_task = asyncio.create_task(_event_recovery_loop(), name="event-recovery")
+        twitch_reconcile_task = asyncio.create_task(_twitch_reconcile_loop(), name="twitch-reconcile")
 
     @app.on_event("shutdown")
     async def shutdown():
         log.info("Bot shutdown requested")
-        nonlocal device_task
+        nonlocal device_task, event_recovery_task, twitch_reconcile_task
+        for task in (event_recovery_task, twitch_reconcile_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        event_recovery_task = None
+        twitch_reconcile_task = None
+        for task in list(twitch_fulfillment_tasks.values()):
+            if not task.done():
+                task.cancel()
+        twitch_fulfillment_tasks.clear()
         if device_task and not device_task.done():
             device_task.cancel()
             try:
@@ -580,7 +719,15 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     @app.get("/")
     async def index():
-        return html_no_cache(root / "stream_voice_bot" / "web" / "index.html")
+        path = root / "stream_voice_bot" / "web" / "index.html"
+        page = path.read_text(encoding="utf-8").replace("__SVB_LOCAL_TOKEN__", local_api_token)
+        return HTMLResponse(
+            page,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
 
     @app.get("/subtitles")
     async def subtitles():
@@ -776,6 +923,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             if int(d["max_output_channels"]) <= 0:
                 raise HTTPException(400, "Selected device has no output")
             db.set_setting("output_device", str(req.output_device))
+            db.set_setting("output_device_name", str(d.get("name") or ""))
             player.settings.device = req.output_device
         return {"ok": True, "profiles": profiles}
 
@@ -1182,7 +1330,10 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
-            was_running = bool(stt.thread and stt.thread.is_alive())
+            was_running = bool(
+                (stt.thread and stt.thread.is_alive())
+                or (stt.start_thread and stt.start_thread.is_alive())
+            )
             previous_model = stt.config.model_name
             previous_device = stt.config.device_mode
             stt.save_config(**kwargs)
@@ -1211,6 +1362,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             # configuration (or may be alive after an inference error). In that
             # case, restart it instead of returning "already works".
             active = bool(stt.thread and stt.thread.is_alive())
+            loading = bool(stt.start_thread and stt.start_thread.is_alive())
             runtime_device = stt.runtime_device
             configured_device = stt.config.device_mode
             needs_restart = active and (
@@ -1222,15 +1374,25 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             )
             if needs_restart:
                 stt.stop()
-                deadline = time.monotonic() + 15.0
-                while time.monotonic() < deadline:
-                    if not (stt.thread and stt.thread.is_alive()) and not (
-                        stt.start_thread and stt.start_thread.is_alive()
-                    ):
-                        break
-                    await asyncio.sleep(0.2)
-                if stt.thread and stt.thread.is_alive():
-                    raise HTTPException(409, "Предыдущий STT ещё не остановился")
+                loading = bool(stt.start_thread and stt.start_thread.is_alive())
+            if loading:
+                # A config change can request stop while the model is still downloading.
+                # Do not race a new start against that loader; wait for the old start worker
+                # to observe stop_event and exit before launching the new configuration.
+                if stt.stop_event.is_set():
+                    deadline = time.monotonic() + 120.0
+                    while time.monotonic() < deadline:
+                        if not (stt.start_thread and stt.start_thread.is_alive()):
+                            break
+                        await asyncio.sleep(0.2)
+                    if stt.start_thread and stt.start_thread.is_alive():
+                        raise HTTPException(409, "Предыдущая загрузка STT ещё не остановилась")
+                else:
+                    return {"ok": True, "state": stt.state(), "restarted": False}
+            if stt.thread and stt.thread.is_alive():
+                if not needs_restart:
+                    return {"ok": True, "state": stt.state(), "restarted": False}
+                raise HTTPException(409, "Предыдущий STT ещё не остановился")
             stt.start()
             return {"ok": True, "state": stt.state(), "restarted": needs_restart}
         except HTTPException:
