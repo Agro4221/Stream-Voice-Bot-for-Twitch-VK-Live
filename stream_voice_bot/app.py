@@ -479,7 +479,11 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         if not is_voice_reward:
             return
 
-        event_key = "twitch:" + (eventsub_id or "redemption:" + redemption_id)
+        event_key = "twitch:" + (
+            "redemption:" + redemption_id
+            if redemption_id
+            else eventsub_id
+        )
         if not recovery:
             payload = json.dumps(event, ensure_ascii=False)
             if not db.record_event(event_key, "twitch", "channel_points_redemption", payload):
