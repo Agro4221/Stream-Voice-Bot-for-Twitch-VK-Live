@@ -45,14 +45,16 @@ jobs:
               break
             fi
           done < <(
-            gh run list \
-              --repo "${{ github.repository }}" \
-              --workflow exe-build-candidate.yml \
-              --branch exe-packaging-v1.1.9-release-candidate \
-              --status success \
-              --limit 20 \
-              --json databaseId \
-              --jq '.[].databaseId'
+            for branch in feat/sherpa-onnx-gpu-stt exe-packaging-v1.1.9-release-candidate; do
+              gh run list \
+                --repo "${{ github.repository }}" \
+                --workflow exe-build-candidate.yml \
+                --branch "$branch" \
+                --status success \
+                --limit 20 \
+                --json databaseId \
+                --jq '.[].databaseId'
+            done
           )
 
           test -n "$candidate_run"
