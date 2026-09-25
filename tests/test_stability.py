@@ -93,6 +93,46 @@ class StabilityDatabaseTests(unittest.TestCase):
                 stt_module.sd = real_sd
 
 
+    def test_stt_invalid_saved_device_falls_back_to_default_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            service = stt_module.STTService(db, lambda _: None, lambda _: None)
+            service.config.input_device = 99
+
+            class FakeStream:
+                samplerate = 48000
+                def __init__(self):
+                    self.closed = False
+                def start(self):
+                    return None
+                def close(self):
+                    self.closed = True
+
+            class FakeSD:
+                def query_devices(self, device=None, kind=None):
+                    if device == 99:
+                        raise RuntimeError("No such device")
+                    return {
+                        "default_samplerate": 48000,
+                        "max_input_channels": 1,
+                        "name": "Default mic",
+                        "hostapi": 0,
+                    }
+                def query_hostapis(self, index):
+                    return {"name": "Windows DirectSound"}
+                def InputStream(self, **kwargs):
+                    return FakeStream()
+
+            real_sd = stt_module.sd
+            try:
+                stt_module.sd = FakeSD()
+                stream, rate = service._open_input_stream()
+                self.assertEqual(rate, 48000)
+                stream.close()
+            finally:
+                stt_module.sd = real_sd
+
+
     def test_stt_uses_wasapi_auto_convert_for_shared_format(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
