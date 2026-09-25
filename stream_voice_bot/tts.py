@@ -270,6 +270,7 @@ class TTSQueue:
         self.max_queue_items = 200
         self.queue=Queue(maxsize=self.max_queue_items); self.pending=[]; self.current=None; self.running=True
         self.cancelled_ids=set()
+        self.current_action: str | None = None
         self.lock=threading.RLock(); self.on_change=lambda: None
         self.thread=threading.Thread(target=self._worker, name="tts-worker", daemon=True); self.thread.start()
 
@@ -326,6 +327,7 @@ class TTSQueue:
                     self.cancelled_ids.discard(hid)
                 else:
                     self.current = (item, hid, profile)
+                    self.current_action = None
 
             if canceled:
                 try:
@@ -359,11 +361,16 @@ class TTSQueue:
                         speaker=self._profile_speaker(profile),
                         sample_rate=48000,
                     )
-                    result = self.player.play(
-                        audio,
-                        48000,
-                        volume_db=self._profile_volume(profile),
-                    )
+                    with self.lock:
+                        action = self.current_action
+                    if action in {"stopped", "skipped"}:
+                        result = action
+                    else:
+                        result = self.player.play(
+                            audio,
+                            48000,
+                            volume_db=self._profile_volume(profile),
+                        )
                 except Exception as e:
                     self.player.last_error = f"{type(e).__name__}: {e}"
                     result = "error"
@@ -378,6 +385,7 @@ class TTSQueue:
                     self.player.last_error = f"history-finish: {type(e).__name__}: {e}"
                 with self.lock:
                     self.current = None
+                    self.current_action = None
                 try:
                     self.on_change()
                 except Exception as e:
@@ -394,6 +402,8 @@ class TTSQueue:
     def stop(self):
         with self.lock:
             active = self.current is not None
+            if active:
+                self.current_action = "stopped"
         if active:
             self.player.stop()
         self.on_change()
@@ -401,6 +411,8 @@ class TTSQueue:
     def skip(self):
         with self.lock:
             active = self.current is not None
+            if active:
+                self.current_action = "skipped"
         if active:
             self.player.skip()
         self.on_change()
