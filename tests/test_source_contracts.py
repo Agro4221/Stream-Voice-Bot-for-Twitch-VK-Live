@@ -112,7 +112,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("T_ONE_MODEL_RATE = 8000", stt)
         self.assertIn('provider="cuda"', stt)
         self.assertIn('provider="cpu"', stt)
-        self.assertIn("decoding_method="greedy_search"", stt)
+        self.assertIn('decoding_method="greedy_search"', stt)
         self.assertIn("accept_waveform(T_ONE_MODEL_RATE", stt)
         self.assertIn("decode_stream", stt)
 
@@ -228,7 +228,7 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("def _install_gpu_runtime", stt)
         self.assertIn("cublas64_12.dll", stt)
         self.assertIn("cudnn64_9.dll", stt)
-        self.assertIn('["tar", "-xf"', stt)
+        self.assertIn('[tar_exe, "-xf"', stt)
         self.assertIn("data/gpu_runtime", web)
         self.assertIn("849 МБ", web)
 
