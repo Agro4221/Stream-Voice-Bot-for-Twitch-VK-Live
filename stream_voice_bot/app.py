@@ -1132,7 +1132,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         with subtitle_lock:
             active_ids = {t["id"] for t in subtitle_tracks}
             for t in subtitle_tracks:
-                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"], "sequence":0})
                 state["language"] = t["language"]
                 if not t.get("enabled", True):
                     state.update({"text": "", "timestamp": 0})
