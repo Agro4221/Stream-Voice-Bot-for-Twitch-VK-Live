@@ -35,8 +35,9 @@ def _decimal_words(whole: str, frac: str) -> str:
     try:
         whole_n = int(whole)
         whole_word = {1: "одна", 2: "две"}.get(whole_n, _num_words(whole))
+        whole_adjective = "целая" if whole_n == 1 else "целых"
         denom = {1: "десятых", 2: "сотых", 3: "тысячных"}.get(len(frac), "десятичных")
-        return f"{whole_word} целых {_num_words(frac)} {denom}"
+        return f"{whole_word} {whole_adjective} {_num_words(frac)} {denom}"
     except Exception:
         return f"{_num_words(whole)} запятая {" ".join(DIGIT_WORDS.get(c, c) for c in frac)}"
 
