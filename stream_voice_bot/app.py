@@ -264,7 +264,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         return bool(_SUBTITLE_CREDIT_RE.search(" ".join(str(value or "").split())))
 
     subtitle_state = {
-        str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru")}
+        str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru"), "sequence": 0}
         for t in subtitle_tracks
     }
 
@@ -308,10 +308,20 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         is_translated = data.get("source") is False
         with subtitle_lock:
             if is_translated and explicit_track and explicit_track in subtitle_state:
+                incoming_sequence = data.get("sequence")
+                current_sequence = int(subtitle_state[explicit_track].get("sequence", 0) or 0)
+                if incoming_sequence is not None:
+                    try:
+                        incoming_sequence = int(incoming_sequence)
+                    except (TypeError, ValueError):
+                        incoming_sequence = None
+                if incoming_sequence is not None and incoming_sequence < current_sequence:
+                    return
                 subtitle_state[explicit_track].update({
                     "text": data.get("text", ""),
                     "timestamp": data.get("timestamp", time.time()),
                     "language": data.get("language", explicit_track),
+                    "sequence": incoming_sequence if incoming_sequence is not None else current_sequence + 1,
                 })
                 return
 
@@ -323,11 +333,18 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             ]
             for t in source_tracks or [{"id": "ru", "language": data.get("language", "ru")}]:
                 tid = str(t.get("id", "ru"))
-                subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": ""})
+                subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": "", "sequence": 0})
+                current_sequence = int(subtitle_state[tid].get("sequence", 0) or 0)
+                incoming_sequence = data.get("sequence")
+                try:
+                    incoming_sequence = int(incoming_sequence) if incoming_sequence is not None else current_sequence + 1
+                except (TypeError, ValueError):
+                    incoming_sequence = current_sequence + 1
                 subtitle_state[tid].update({
                     "text": data.get("text", ""),
                     "timestamp": data.get("timestamp", time.time()),
                     "language": data.get("language", t.get("language", "ru")),
+                    "sequence": max(current_sequence + 1, incoming_sequence),
                 })
 
     def on_twitch_status(data: dict):
@@ -1158,12 +1175,14 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         with subtitle_lock:
             subtitle_state.setdefault(
                 track_id,
-                {"text": "", "timestamp": 0, "language": language},
+                {"text": "", "timestamp": 0, "language": language, "sequence": 0},
             )
+            next_sequence = int(subtitle_state[track_id].get("sequence", 0) or 0) + 1
             subtitle_state[track_id].update({
                 "text": rendered,
                 "timestamp": ts,
                 "language": language,
+                "sequence": next_sequence,
             })
         return {
             "ok": True,
