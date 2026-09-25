@@ -83,10 +83,11 @@ class NormalizeRequest(BaseModel):
 
 
 class STTConfigRequest(BaseModel):
-    model_name: str | None = None
     language: str | None = None
     input_device: int | None = None
     sample_rate: int | None = None
+    # Legacy fields are accepted from old clients but ignored by the T-one backend.
+    model_name: str | None = None
     chunk_seconds: float | None = Field(default=None, ge=1, le=10)
     overlap_seconds: float | None = Field(default=None, ge=0, le=3)
     beam_size: int | None = Field(default=None, ge=1, le=10)
@@ -1172,54 +1173,28 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     # ---- STT ----
     @app.post("/api/stt/config")
     async def stt_config(req: STTConfigRequest):
-        current_chunk = stt.config.chunk_seconds
-        current_overlap = stt.config.overlap_seconds
-        if req.device_mode is not None and req.device_mode not in {"auto", "cuda", "cpu"}:
-            raise HTTPException(400, "Unknown STT device mode")
-        chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
-        overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
-        if overlap >= chunk:
-            raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
             was_running = bool(stt.thread and stt.thread.is_alive())
-            previous_model = stt.config.model_name
-            previous_device = stt.config.device_mode
+            previous_input = stt.config.input_device
+            previous_language = stt.config.language
             stt.save_config(**kwargs)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
 
-        changed_runtime = (
-            was_running
-            and (
-                previous_model != stt.config.model_name
-                or previous_device != stt.config.device_mode
-            )
+        changed_runtime = was_running and (
+            previous_input != stt.config.input_device
+            or previous_language != stt.config.language
         )
         if changed_runtime:
-            # Do not silently keep an old CUDA/CPU model after the user saved
-            # a different device/model. Stop the current worker; the UI can
-            # then start the newly selected configuration deterministically.
             stt.stop()
-
         return {"ok": True, "restart_required": changed_runtime, "state": stt.state()}
 
     @app.post("/api/stt/start")
     async def stt_start():
         try:
-            # A running worker may still belong to a previous CPU/GPU
-            # configuration (or may be alive after an inference error). In that
-            # case, restart it instead of returning "already works".
             active = bool(stt.thread and stt.thread.is_alive())
-            runtime_device = stt.runtime_device
-            configured_device = stt.config.device_mode
-            needs_restart = active and (
-                bool(stt.last_error)
-                or (
-                    configured_device in {"cpu", "cuda"}
-                    and runtime_device not in {None, configured_device}
-                )
-            )
+            needs_restart = active and bool(stt.last_error)
             if needs_restart:
                 stt.stop()
                 deadline = time.monotonic() + 15.0
