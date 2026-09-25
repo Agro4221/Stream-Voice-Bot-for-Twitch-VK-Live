@@ -169,26 +169,41 @@ if (-not (Test-Path $venvPython)) {
 if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed" }
 
 # ---------- PyTorch ----------
-$hasNvidia = $false
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    & nvidia-smi -L 2>$null | Out-Null
-    $hasNvidia = ($LASTEXITCODE -eq 0)
-}
+# Silero TTS runs on CPU intentionally. Do not install the CUDA build of
+# PyTorch just because an NVIDIA GPU exists: STT has its own CUDA runtime via
+# sherpa-onnx, which keeps the TTS stack smaller and avoids unnecessary CUDA
+# conflicts with the speech recognizer.
 $torchOk = $false
 try {
     & $venvPython -c "import torch; print(torch.__version__)" 2>$null | Out-Null
     $torchOk = ($LASTEXITCODE -eq 0)
 } catch {}
 if (-not $torchOk) {
-    if ($hasNvidia) {
-        Write-Host "NVIDIA GPU detected. Installing PyTorch CUDA 12.8 build..." -ForegroundColor Cyan
-        & $venvPython -m pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
-    } else {
-        Write-Host "NVIDIA GPU not detected. Installing PyTorch CPU build..." -ForegroundColor Cyan
-        & $venvPython -m pip install torch==2.10.0 torchaudio==2.10.0
-    }
+    Write-Host "Installing CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
+    & $venvPython -m pip install torch==2.10.0
     if ($LASTEXITCODE -ne 0) { throw "PyTorch installation failed" }
 }
+
+# ---------- STT / sherpa-onnx ----------
+# T-one is a streaming Russian CTC model. On NVIDIA PCs we install the
+# CUDA 12 + cuDNN 9 wheel; otherwise the regular CPU wheel is enough.
+$hasNvidia = $false
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    & nvidia-smi -L 2>$null | Out-Null
+    $hasNvidia = ($LASTEXITCODE -eq 0)
+}
+$sherpaVersion = "1.13.7"
+Write-Host "Preparing sherpa-onnx STT runtime..." -ForegroundColor Cyan
+if ($hasNvidia) {
+    & $venvPython -m pip install --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion+cuda12.cudnn9" --no-index -f "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "CUDA sherpa-onnx install failed. Falling back to CPU sherpa-onnx..." -ForegroundColor Yellow
+        & $venvPython -m pip install --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion"
+    }
+} else {
+    & $venvPython -m pip install --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion"
+}
+if ($LASTEXITCODE -ne 0) { throw "sherpa-onnx installation failed" }
 
 # ---------- Python dependencies ----------
 Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
