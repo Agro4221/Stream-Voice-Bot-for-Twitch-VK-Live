@@ -709,6 +709,12 @@ class STTService:
             + " | ".join(errors)
         )
 
+    @staticmethod
+    def _result_text(result) -> str:
+        # sherpa-onnx has returned both result objects and plain strings across
+        # Python package revisions. Normalize both forms to text.
+        return _normalize_text(getattr(result, "text", result))
+
     def _run(self):
         stream = None
         com_initialized = False
@@ -754,7 +760,7 @@ class STTService:
                     self.transcribe_attempts += 1
                     self.last_transcribe_at = time.time()
                 result = self.recognizer.get_result_all(model_stream)
-                text = _normalize_text(result.text)
+                text = self._result_text(result)
                 self.last_text = text
                 if text and text != self.last_published_text:
                     now = time.monotonic()
@@ -768,7 +774,7 @@ class STTService:
                 elif not text:
                     self.last_transcribe_result = "текста нет"
                 if self.recognizer.is_endpoint(model_stream):
-                    final_text = _normalize_text(self.recognizer.get_result(model_stream).text)
+                    final_text = self._result_text(self.recognizer.get_result(model_stream))
                     if final_text:
                         self._publish(final_text)
                     self.last_published_text = ""
