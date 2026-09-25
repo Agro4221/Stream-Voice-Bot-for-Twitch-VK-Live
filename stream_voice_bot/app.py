@@ -1263,7 +1263,10 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
-            was_running = bool(stt.thread and stt.thread.is_alive())
+            was_running = bool(
+                (stt.thread and stt.thread.is_alive())
+                or (stt.start_thread and stt.start_thread.is_alive())
+            )
             previous_model = stt.config.model_name
             previous_device = stt.config.device_mode
             stt.save_config(**kwargs)
