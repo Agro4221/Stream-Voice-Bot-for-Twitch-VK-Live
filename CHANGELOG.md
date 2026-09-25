@@ -14,6 +14,17 @@
 
 ## Текущая версия
 
+### 2.0.0
+- STT заменён с faster-whisper/large-v3-turbo на T-one + sherpa-onnx.
+- T-one работает потоково на 8 kHz через OnlineRecognizer.
+- На NVIDIA STT автоматически пытается использовать CUDA; при любой проблеме тот же T-one запускается через CPU.
+- Пользовательский выбор модели, CUDA/CPU, beam size и окон обработки убран из админки.
+- Silero TTS теперь требует только CPU PyTorch; CUDA-зависимости STT отделены от PyTorch.
+- Portable EXE собирается с CUDA-capable sherpa-onnx wheel, поэтому GPU STT доступен без CUDA-сборки PyTorch.
+- Фильтрация характерных Whisper credit-hallucinations сохранена как защита второго уровня.
+
+## Текущая версия
+
 ### 1.1.11
 - STT: режимы Auto/GPU/CPU, диагностика устройства и микрофона.
 - STT: локальный GPU runtime для CUDA 12 + cuDNN 9 с установкой по требованию.
