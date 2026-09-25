@@ -165,7 +165,7 @@ function New-CpuBuildVenv {
         "-m", "pip", "install",
         "--disable-pip-version-check",
         "--upgrade", "--force-reinstall",
-        "sherpa-onnx==1.13.7+cuda12.cudnn9",
+        "sherpa-onnx==1.13.8+cuda12.cudnn9",
         "-f", "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
     ) "CUDA-capable sherpa-onnx installation failed."
 
