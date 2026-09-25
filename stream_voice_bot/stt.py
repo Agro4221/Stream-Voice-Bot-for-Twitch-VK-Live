@@ -99,6 +99,15 @@ class STTService:
             compute_type=db.get_setting("stt_compute_type", "float16"),
             device_mode=db.get_setting("stt_device", "auto"),
         )
+        saved_input_name = db.get_setting("stt_input_device_name", "") or ""
+        if saved_input_name:
+            try:
+                for idx, device_info in enumerate(sd.query_devices()):
+                    if int(device_info.get("max_input_channels", 0)) > 0 and str(device_info.get("name", "")) == saved_input_name:
+                        self.config.input_device = idx
+                        break
+            except Exception:
+                pass
         self.model = None
         self.runtime_device: str | None = None
         self.runtime_compute_type: str | None = None
