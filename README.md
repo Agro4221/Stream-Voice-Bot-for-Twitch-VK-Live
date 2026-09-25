@@ -1,6 +1,6 @@
 # 🎙️ Stream Voice Bot
 
-> Локальный Windows-ассистент для стрима: **Twitch + VK Видео Live → Silero TTS → VB-CABLE/OBS**, с очередью озвучки, локальной админкой, опциональным **faster-whisper STT**, OBS Browser Source субтитрами и локальным переводом через Argos Translate.
+> Локальный Windows-ассистент для стрима: **Twitch + VK Видео Live → Silero TTS → VB-CABLE/OBS**, с очередью озвучки, локальной админкой, потоковым **T-one / sherpa-onnx STT**, OBS Browser Source субтитрами и локальным переводом через Argos Translate.
 
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python&logoColor=white)
@@ -26,7 +26,7 @@
 | 🎁 Twitch Channel Points → текст → TTS | ✅ |
 | 🔵 VK Видео Live → чат → TTS | ✅ |
 | 🎧 VB-CABLE → OBS, 48 kHz stereo | ✅ |
-| 🎤 faster-whisper STT | ✅, опционально |
+| 🎤 T-one / sherpa-onnx STT | ✅, опционально |
 | 🌍 Несколько subtitle tracks для OBS | ✅ |
 | 📝 Browser Source субтитров | ⚠️, опционально |
 | 💾 Хранение Twitch/VK секретов в Windows Credential Manager | ✅ |
@@ -61,21 +61,19 @@
                                       └───────────────────┘
 ```
 
-## 🆕 Что нового в v1.1.12
+## 🆕 Что нового в v2.0.0
 
-v1.1.12 объединяет обновлённый STT/GPU-контур, более подробную диагностику и текущую portable Windows-сборку:
+v2.0.0 меняет основу STT-контура и уменьшает его связность с CUDA/PyTorch:
 
-- 🎤 отдельные режимы STT: **Авто (CUDA → CPU)**, **GPU (NVIDIA CUDA)** и **CPU int8**;
-- 🟢 автоматическая подготовка локального CUDA 12 + cuDNN 9 runtime для GPU-режима в `data/gpu_runtime`;
-- 🧩 проверка NVIDIA GPU/драйвера и необходимых cuBLAS/cuDNN DLL до запуска CUDA;
-- 🔄 автоматический переход на CPU int8 в режиме **Авто**, если CUDA недоступна;
-- 📊 расширенная диагностика STT: RMS/peak микрофона, аудиоблоки, окна распознавания, длительность последнего окна и ошибка;
-- 🧹 ограничение аудиобэклога и выбор самого свежего аудио окна, чтобы задержка субтитров не накапливалась;
-- 📝 отдельные OBS subtitle tracks, тест дорожек и защита от типичных Whisper credit/hallucination-фраз;
-- 📦 компактная portable EXE-сборка с `_internal`, пользовательской папкой `data` и автоматическим ярлыком Windows.
+- 🔁 `faster-whisper` заменён на **T-one + sherpa-onnx**;
+- ⚡ NVIDIA CUDA используется автоматически;
+- 🛡️ при проблеме CUDA запускается тот же T-one на CPU;
+- 🧹 пользовательские GPU/CPU и model/beam/chunk переключатели убраны;
+- 🧩 Silero TTS остаётся на CPU-only PyTorch;
+- 📦 portable EXE содержит CUDA-capable sherpa-onnx backend;
+- 🚫 Whisper больше не участвует в базовом STT pipeline.
 
-> ⚠️ **Важно:** субтитры пока могут работать нестабильно. Возможны пропуски, задержки или некорректные обновления отдельных дорожек. Работа по исправлению и улучшению субтитров продолжается.
-
+> ⚠️ Полноценную NVIDIA CUDA-проверку нужно делать на реальном Windows-ПК с NVIDIA GPU. Обычный GitHub-hosted runner не предоставляет нам такой среды.
 ## 🚀 Быстрый старт
 
 ### Вариант 1 — буквально двойной клик
@@ -389,7 +387,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps
 
 ## 📄 Лицензии сторонних компонентов
 
-Проект использует сторонние зависимости, в том числе PyTorch, Silero, faster-whisper, TwitchIO и `vklive-message-client`. Их собственные лицензии и условия распространения продолжают действовать независимо от лицензии этого проекта.
+Проект использует сторонние зависимости, в том числе PyTorch, Silero, sherpa-onnx, TwitchIO и `vklive-message-client`. Их собственные лицензии и условия распространения продолжают действовать независимо от лицензии этого проекта.
 
 Исходный код **Stream Voice Bot** распространяется под лицензией MIT.
 
