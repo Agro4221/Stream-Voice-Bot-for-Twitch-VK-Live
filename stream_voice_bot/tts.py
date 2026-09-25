@@ -279,6 +279,11 @@ class TTSQueue:
 
         created_history = history_id is None
         with self.lock:
+            if history_id is not None:
+                if self.current is not None and self.current[1] == history_id:
+                    return history_id
+                if any(existing_id == history_id for _, existing_id, _ in self.pending):
+                    return history_id
             if len(self.pending) >= self.max_queue_items:
                 raise RuntimeError(
                     f"TTS queue is full (max {self.max_queue_items} pending items)"
