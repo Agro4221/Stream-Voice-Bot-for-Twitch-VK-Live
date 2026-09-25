@@ -32,6 +32,7 @@ jobs:
         shell: bash
         run: |
           version="${{ steps.version.outputs.version }}"
+          candidate_branch="exe-packaging-v${version}-release-candidate"
           candidate_run=""
           current_sha="${{ github.sha }}"
           current_parents="$(git show -s --format=%P "$current_sha")"
@@ -52,7 +53,7 @@ jobs:
             gh run list \
               --repo "${{ github.repository }}" \
               --workflow exe-build-candidate.yml \
-              --branch exe-packaging-v1.1.9-release-candidate \
+              --branch "$candidate_branch" \
               --status success \
               --limit 20 \
               --json databaseId \
@@ -60,6 +61,7 @@ jobs:
           )
 
           test -n "$candidate_run"
+          echo "Candidate branch: $candidate_branch"
           candidate_head_sha="$(gh run view "$candidate_run" --repo "${{ github.repository }}" --json headSha --jq '.headSha')"
           echo "run_id=$candidate_run" >> "$GITHUB_OUTPUT"
           echo "head_sha=$candidate_head_sha" >> "$GITHUB_OUTPUT"
