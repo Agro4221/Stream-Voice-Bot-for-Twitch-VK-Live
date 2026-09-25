@@ -75,6 +75,12 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertNotIn("Create_Desktop_Shortcut.cmd", src)
         self.assertNotIn("StreamVoiceBotCore.exe", src)
 
+    def test_packaged_exe_smoke_authenticates_mutating_api(self):
+        src = self.read(".github/workflows/exe-build-candidate.yml")
+        self.assertIn('window\\.__SVB_LOCAL_TOKEN__\\s*=\\s*"([^"]+)"', src)
+        self.assertIn('$localHeaders = @{ "X-StreamVoiceBot-Local" = $tokenMatch.Groups[1].Value }', src)
+        self.assertIn('-Headers $localHeaders', src)
+
     def test_release_build_output_is_ignored(self):
         src = self.read(".gitignore")
         self.assertIn(".build_venv/", src)
