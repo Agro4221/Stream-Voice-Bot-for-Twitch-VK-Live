@@ -387,6 +387,9 @@ class TTSQueue:
                     )
                 except Exception as e:
                     self.player.last_error = f"history-finish: {type(e).__name__}: {e}"
+                clear_interrupts = getattr(self.player, "clear_interrupts", None)
+                if clear_interrupts:
+                    clear_interrupts()
                 with self.lock:
                     self.current = None
                     self.current_action = None
