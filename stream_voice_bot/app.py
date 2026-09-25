@@ -420,11 +420,29 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             raw_json=json.dumps(event, ensure_ascii=False),
         )
         try:
-            history_id = queue.enqueue(
-                QueueItem(text, username, "vkplay-reward", created_at=created_at),
-                profile="normal",
-                event_key=event_key,
-            )
+            existing = db.get_history_by_external_event_id(event_key) if recovery else None
+            if existing:
+                terminal = existing["status"] in {"finished", "stopped", "skipped", "cleared", "error", "audio_error"}
+                queue_state = queue.state()
+                current_id = (queue_state.get("current") or {}).get("history_id")
+                queued_ids = {item.get("history_id") for item in (queue_state.get("queued") or [])}
+                if terminal:
+                    db.mark_event_done(event_key)
+                    return
+                if current_id == existing["id"] or existing["id"] in queued_ids:
+                    return
+                history_id = queue.enqueue(
+                    QueueItem(text, username, "vkplay-reward", created_at=created_at),
+                    history_id=existing["id"],
+                    profile="normal",
+                    event_key=event_key,
+                )
+            else:
+                history_id = queue.enqueue(
+                    QueueItem(text, username, "vkplay-reward", created_at=created_at),
+                    profile="normal",
+                    event_key=event_key,
+                )
             db.mark_event_queued(event_key, history_id)
             db.mark_event_done(event_key)
             vk_status["last_event"] = f"VK награда: {username}"
@@ -485,11 +503,31 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             return
 
         try:
-            history_id = queue.enqueue(
-                QueueItem(user_input, username, "twitch-channel-points"),
-                profile="normal",
-                event_key=event_key,
-            )
+            existing = db.get_history_by_external_event_id(event_key) if recovery else None
+            if existing:
+                terminal = existing["status"] in {"finished", "stopped", "skipped", "cleared"}
+                queue_state = queue.state()
+                current_id = (queue_state.get("current") or {}).get("history_id")
+                queued_ids = {item.get("history_id") for item in (queue_state.get("queued") or [])}
+                if terminal:
+                    asyncio.create_task(
+                        fulfill_after(existing["id"], reward_id, redemption_id, event_key)
+                    )
+                    return
+                if current_id == existing["id"] or existing["id"] in queued_ids:
+                    return
+                history_id = queue.enqueue(
+                    QueueItem(user_input, username, "twitch-channel-points"),
+                    history_id=existing["id"],
+                    profile="normal",
+                    event_key=event_key,
+                )
+            else:
+                history_id = queue.enqueue(
+                    QueueItem(user_input, username, "twitch-channel-points"),
+                    profile="normal",
+                    event_key=event_key,
+                )
             db.mark_event_queued(event_key, history_id)
             twitch_status["message"] = (
                 f"Channel Points: {username} → «Озвучить сообщение» добавлено в очередь."
@@ -526,8 +564,8 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                         await asyncio.sleep(1.5 * (attempt + 1))
             await asyncio.sleep(0.5)
 
-    async def recover_pending_event_inbox():
-        rows = await asyncio.to_thread(db.pending_events, 500)
+    async def recover_pending_event_inbox(include_queued: bool = True):
+        rows = await asyncio.to_thread(db.pending_events, 500, include_queued)
         for row in rows:
             try:
                 payload = json.loads(row["payload_json"])
@@ -577,7 +615,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     async def _event_recovery_loop():
         while True:
-            await recover_pending_event_inbox()
+            await recover_pending_event_inbox(include_queued=False)
             await asyncio.sleep(30)
 
     async def _twitch_reconcile_loop():
