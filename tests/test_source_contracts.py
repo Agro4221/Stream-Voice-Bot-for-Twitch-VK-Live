@@ -194,6 +194,12 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("status-bad", web)
         self.assertIn("status-pending", web)
 
+    def test_stt_accepts_string_or_result_object(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("def _result_text(result) -> str", stt)
+        self.assertIn('getattr(result, "text", result)', stt)
+        self.assertNotIn("get_result(model_stream).text", stt)
+
     def test_stt_is_bounded_and_uses_streaming_endpointing(self):
         src = self.read("stream_voice_bot/stt.py")
         self.assertIn("deque(maxlen=200)", src)
