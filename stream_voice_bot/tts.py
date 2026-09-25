@@ -273,7 +273,7 @@ class TTSQueue:
         self.lock=threading.RLock(); self.on_change=lambda: None
         self.thread=threading.Thread(target=self._worker, name="tts-worker", daemon=True); self.thread.start()
 
-    def enqueue(self, item: QueueItem, history_id: int|None=None, profile="normal") -> int:
+    def enqueue(self, item: QueueItem, history_id: int|None=None, profile="normal", event_key: str|None=None) -> int:
         if not item.text.strip(): raise ValueError("Text is empty")
         if len(item.text)>self.max_chars_getter(): raise ValueError(f"Text is too long (max {self.max_chars_getter()} chars)")
 
@@ -291,6 +291,8 @@ class TTSQueue:
                     item.created_at,
                     item.repeat_of,
                     profile,
+                    "queued",
+                    event_key,
                 )
             self.pending.append((item, history_id, profile))
             try:
