@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -28,7 +30,7 @@ else:
     _SHERPA_IMPORT_ERROR = None
 
 
-_HALLUCINATION_CREDIT_RE = re.compile(
+log = logging.getLogger(__name__)\n\n_HALLUCINATION_CREDIT_RE = re.compile(
     r"(?:\b(?:subtitles?|captions?)\s+(?:made|created|provided)\s+by\b|"
     r"\b(?:субтитры|субтитров)\s+(?:сделан|создан|предоставлен)(?:ы|о)?\s+(?:кем|автором)?\b)",
     re.IGNORECASE,
@@ -557,8 +559,21 @@ class STTService:
                 self.thread = worker
             worker.start()
             self._emit(running=True, model_loading=False, message="STT запущен ✓")
-        except Exception:
-            pass
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            log.exception("STT startup failed")
+            with self.lock:
+                self.start_thread = None
+                self.model_loading_started_at = None
+                self.loading_phase = "error"
+                self.loading_progress = None
+                self.loading_rate_mbps = None
+            self._emit(
+                running=False,
+                model_loading=False,
+                message=f"Ошибка запуска STT: {detail}",
+                last_error=detail,
+            )
 
     def stop(self):
         self.stop_event.set()
