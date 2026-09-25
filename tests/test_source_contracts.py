@@ -143,6 +143,13 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("NVIDIA CUDA", web)
         self.assertIn("CPU fallback", web)
 
+    def test_stt_loading_phase_reporter_exists(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("def _set_loading_phase(", stt)
+        self.assertIn("self.loading_phase = str(phase or \"idle\")", stt)
+        self.assertIn("loading_progress=self.loading_progress", stt)
+        self.assertIn("loading_rate_mbps=self.loading_rate_mbps", stt)
+
     def test_stt_startup_errors_are_visible_and_model_archive_can_extract(self):
         stt = self.read("stream_voice_bot/stt.py")
         self.assertIn("import tarfile", stt)
