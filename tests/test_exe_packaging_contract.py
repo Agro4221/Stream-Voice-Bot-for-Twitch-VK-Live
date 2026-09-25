@@ -41,15 +41,17 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('"torch",', src)
         self.assertNotIn("collect_all", src)
         self.assertNotIn("StreamVoiceBotCore", src)
+        self.assertIn('"sherpa_onnx",', src)
+        self.assertIn('collect_submodules("sherpa_onnx")', src)
 
-    def test_stt_ui_exposes_auto_gpu_and_cpu_modes(self):
+    def test_stt_ui_uses_automatic_t_one_backend(self):
         src = self.read("stream_voice_bot/web/index.html")
-        self.assertIn('value="auto">Авто (CUDA → CPU)', src)
-        self.assertIn('value="cuda">GPU (NVIDIA CUDA)', src)
-        self.assertIn('value="cpu">CPU int8', src)
-        self.assertIn("GPU runtime", src)
-        self.assertIn("849 МБ", src)
-        self.assertNotIn("cuDNN 8 на системе", src)
+        self.assertIn("T-one · streaming CTC", src)
+        self.assertIn("Авто: NVIDIA GPU → CPU", src)
+        self.assertIn("sherpa-onnx", src)
+        self.assertNotIn('value="cuda">GPU (NVIDIA CUDA)', src)
+        self.assertNotIn('value="cpu">CPU int8', src)
+        self.assertNotIn("large-v3-turbo", src)
         self.assertIn('grid-template-columns:minmax(0,1fr) minmax(0,1fr)', src)
         self.assertIn('profile-box{min-width:0', src)
 
@@ -65,6 +67,8 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn(".build_venv", src)
         self.assertIn("torch==2.10.0+cpu", src)
         self.assertIn("https://download.pytorch.org/whl/cpu", src)
+        self.assertIn("sherpa-onnx==1.13.7+cuda12.cudnn9", src)
+        self.assertIn("https://k2-fsa.github.io/sherpa/onnx/cuda.html", src)
         self.assertIn("The existing dist/ folder will not be touched.", src)
         self.assertIn("Copy-Item $BuiltBundle $FinalStage -Recurse -Force", src)
         self.assertIn("Desktop shortcut: created automatically on first EXE launch.", src)
