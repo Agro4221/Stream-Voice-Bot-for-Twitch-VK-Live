@@ -48,8 +48,7 @@ hiddenimports = [
 # runtime is pulled into the portable TTS package.
 for package in (
     "torch",
-    "faster_whisper",
-    "ctranslate2",
+    "sherpa_onnx",
     "argostranslate",
 ):
     if package == "torch":
@@ -70,8 +69,9 @@ for package in (
 # Silero V5 is loaded from the bundled .pt package via torch.package.
 hiddenimports.extend(collect_submodules("torch.package"))
 
-# These packages use dynamic imports.
-hiddenimports.extend(collect_submodules("faster_whisper"))
+# sherpa-onnx exposes its native backend through dynamic package imports and
+# ships the CUDA-capable ONNX Runtime libraries inside the wheel.
+hiddenimports.extend(collect_submodules("sherpa_onnx"))
 hiddenimports.extend(collect_submodules("argostranslate"))
 hiddenimports.extend(collect_submodules("uvicorn"))
 

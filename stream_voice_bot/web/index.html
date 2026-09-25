@@ -231,24 +231,22 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 </section>
 
 <section class="card wide">
-  <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>STT / Субтитры</h2><div class="small">STT опционален; настройки не сбрасываются автообновлением.</div></div><span id="sttDirty" class="pill" style="display:none">Есть несохранённые изменения</span></div>
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><h2>STT / Субтитры</h2><div class="small">Потоковый T-one / sherpa-onnx. GPU используется автоматически, CPU — только как безопасный fallback.</div></div>
+    <span id="sttDirty" class="pill" style="display:none">Есть несохранённые изменения</span>
+  </div>
   <div class="row">
-    <div class="field"><label>Модель</label><select id="stt_model">
-      <option>large-v3-turbo</option><option>large-v3</option><option>medium</option><option>small</option>
-    </select></div>
+    <div class="field"><label>Движок</label><div class="pill">T-one · streaming CTC</div></div>
     <div class="field"><label>Язык</label><input id="stt_language" value="ru"></div>
     <div class="field"><label>Микрофон / input</label><select id="stt_input" style="min-width:300px"></select></div>
-    <div class="field"><label>Chunk, сек</label><input id="stt_chunk" type="number" min="1" max="10" step=".5" value="2.5"></div>
-    <div class="field"><label>Overlap, сек</label><input id="stt_overlap" type="number" min="0" max="3" step=".1" value=".25"></div>
-    <div class="field"><label>Устройство STT</label><select id="stt_device"><option value="auto">Авто (CUDA → CPU)</option><option value="cuda">GPU (NVIDIA CUDA)</option><option value="cpu">CPU int8</option></select></div>
-    <div class="field"><label>Compute (авто)</label><select id="stt_compute" disabled><option>float16</option><option>int8</option></select></div>
+    <div class="field"><label>Обработка</label><div id="sttProvider" class="pill">Авто: NVIDIA GPU → CPU</div></div>
   </div>
   <div class="actions" style="margin-top:10px">
     <button onclick="saveStt()">Сохранить STT</button>
     <button class="ok" onclick="startStt()">Запустить STT</button>
     <button class="danger" onclick="stopStt()">Остановить STT</button>
   </div>
-  <div class="small" style="margin-top:8px">Устройство STT можно выбрать вручную: Авто, GPU (NVIDIA CUDA) или CPU int8. В режиме «Авто» приложение сначала проверяет наличие NVIDIA GPU, затем при необходимости один раз скачивает GPU runtime в data/gpu_runtime и пробует CUDA. Если GPU недоступна, используется CPU без скачивания сотен мегабайт. Первый GPU запуск может скачать около 849 МБ.</div>
+  <div class="small" style="margin-top:8px">T-one работает потоково на 8 kHz. При наличии NVIDIA бот сам пытается использовать CUDA; если CUDA недоступна, тот же T-one автоматически запускается на CPU. Пользовательские режимы переключать не нужно.</div>
   <div id="sttInfo" class="small" style="margin-top:8px"></div>
   <div id="sttLastText" class="small" style="margin-top:6px;word-break:break-word"></div>
   <div id="sttAudioInfo" class="small" style="margin-top:6px"></div>
@@ -409,7 +407,7 @@ function renderSubtitleTracks(tracks){
         <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
       </select></div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
-      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack').dataset.id)">Тест</button>
+      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack'))">Тест</button>
       <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
     </div>
     <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
@@ -430,19 +428,41 @@ async function saveSubtitleTracks(){
   try{ const x=await api('/api/subtitles/tracks',{method:'POST',body:JSON.stringify({tracks:collectSubtitleTracks()})}); renderSubtitleTracks(x.tracks); document.getElementById('subtitleInfo').textContent='Дорожки субтитров сохранены.'; refresh(); }
   catch(e){ document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message; }
 }
-async function testSubtitleTrack(id){
+async function testSubtitleTrack(row){
+  const info=document.getElementById('subtitleInfo');
   try{
+    let id='';
+    if(row && row.matches && row.matches('.subtrack')){
+      const rows=[...document.querySelectorAll('.subtrack')];
+      const index=rows.indexOf(row);
+      const draftTracks=collectSubtitleTracks();
+      id=String(draftTracks[index]?.id||'').trim().toLowerCase();
+      if(!id) throw new Error('У дорожки не задан ID');
+
+      // Test the values currently visible in the row, even when the user has
+      // not pressed "Сохранить дорожки" yet. This also handles an edited ID.
+      const saved=await api('/api/subtitles/tracks',{
+        method:'POST',
+        body:JSON.stringify({tracks:draftTracks})
+      });
+      renderSubtitleTracks(saved.tracks);
+    }else{
+      id=String(row||'').trim().toLowerCase();
+    }
     const x=await api('/api/subtitles/test/'+encodeURIComponent(id),{method:'POST'});
-    document.getElementById('subtitleInfo').textContent='Тест отправлен в дорожку '+id+': '+x.text;
-    refresh();
+    if(info) info.textContent='Тест отправлен в дорожку '+id+': '+x.text;
+    await refresh();
   }catch(e){
-    document.getElementById('subtitleInfo').textContent='Ошибка теста дорожки '+id+': '+e.message;
+    if(info) info.textContent='Ошибка теста дорожки: '+e.message;
   }
 }
 async function testSubtitles(){
   try{
     const x=await api('/api/subtitles/test',{method:'POST'});
-    document.getElementById('subtitleInfo').textContent='Тест отправлен: '+(x.text||'Тест субтитров');
+    const pending=Array.isArray(x.translation_tracks_pending)?x.translation_tracks_pending:[];
+    document.getElementById('subtitleInfo').textContent=pending.length
+      ? 'Тест оригинала отправлен. Переводы готовятся: '+pending.join(', ')+'.'
+      : 'Тест субтитров отправлен.';
     refresh();
   }catch(e){
     document.getElementById('subtitleInfo').textContent='Ошибка теста субтитров: '+e.message;
@@ -610,14 +630,15 @@ async function refresh(){
     writeServerValue('stt_input', s.stt.input_device===null || s.stt.input_device===undefined ? '' : s.stt.input_device);
 
     const sttFields={
-      stt_model:s.stt.model||'large-v3-turbo',
-      stt_language:s.stt.language||'ru',
-      stt_chunk:s.stt.chunk_seconds||2.5,
-      stt_overlap:s.stt.overlap_seconds??0.25,
-      stt_compute:s.stt.compute_type||'float16',
-      stt_device:s.stt.device_mode||'auto'
+      stt_language:s.stt.language||'ru'
     };
     Object.entries(sttFields).forEach(([id,value])=>writeServerValue(id,value));
+    const provider=document.getElementById('sttProvider');
+    if(provider){
+      const name=s.stt.provider==='cuda' ? 'NVIDIA CUDA' : s.stt.provider==='cpu' ? 'CPU fallback' : 'Авто: NVIDIA GPU → CPU';
+      provider.textContent=name;
+      provider.className='pill '+(s.stt.provider==='cuda' ? 'status-good' : s.stt.provider==='cpu' ? 'status-pending' : '');
+    }
     document.getElementById('sttDirty').style.display=Object.keys(sttFields).concat(['stt_input']).some(id=>{
       const el=document.getElementById(id); return el?.dataset.userEdited==='1' || (el?.dataset.serverValue!==undefined && String(el.value)!==String(el.dataset.serverValue));
     })?'inline-flex':'none';
@@ -911,7 +932,7 @@ function clearEditableState(id){
   'vk_channel',
   'twitch_id',
   'normal_speaker','normal_volume','loud_speaker','loud_volume','speed','max_chars',
-  'stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_compute',
+  'stt_language','stt_input',
   'device'
 ].forEach(bindEditableState);
 
@@ -941,18 +962,13 @@ async function stopVk(){
 async function saveStt(){
   try{
     const x=await api('/api/stt/config',{method:'POST',body:JSON.stringify({
-      model_name:document.getElementById('stt_model').value,
       language:document.getElementById('stt_language').value.trim(),
-      input_device:parseInt(document.getElementById('stt_input').value,10),
-      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
-      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
-      compute_type:document.getElementById('stt_compute').value,
-      device_mode:document.getElementById('stt_device').value
+      input_device:parseInt(document.getElementById('stt_input').value,10)
     })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
+    ['stt_language','stt_input'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
     document.getElementById('sttInfo').textContent=x.restart_required
-      ? 'Настройки сохранены. Перезапускаю STT с выбранным устройством…'
+      ? 'Настройки сохранены. Перезапускаю STT…'
       : 'STT настройки сохранены.';
     if(x.restart_required){
       try{
@@ -983,15 +999,10 @@ async function startStt(){
   if(info) info.textContent='Сохраняю текущие настройки и запускаю STT…';
   try{
     const x=await api('/api/stt/config',{method:'POST',body:JSON.stringify({
-      model_name:document.getElementById('stt_model').value,
       language:document.getElementById('stt_language').value.trim(),
-      input_device:parseInt(document.getElementById('stt_input').value,10),
-      chunk_seconds:parseFloat(document.getElementById('stt_chunk').value),
-      overlap_seconds:parseFloat(document.getElementById('stt_overlap').value),
-      compute_type:document.getElementById('stt_compute').value,
-      device_mode:document.getElementById('stt_device').value
+      input_device:parseInt(document.getElementById('stt_input').value,10)
     })});
-    ['stt_model','stt_language','stt_input','stt_chunk','stt_overlap','stt_device','stt_compute'].forEach(clearEditableState);
+    ['stt_language','stt_input'].forEach(clearEditableState);
     document.getElementById('sttDirty').style.display='none';
 
     if(x.restart_required){

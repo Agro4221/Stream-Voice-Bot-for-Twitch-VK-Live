@@ -169,31 +169,58 @@ if (-not (Test-Path $venvPython)) {
 if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed" }
 
 # ---------- PyTorch ----------
-$hasNvidia = $false
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    & nvidia-smi -L 2>$null | Out-Null
-    $hasNvidia = ($LASTEXITCODE -eq 0)
-}
+# Silero TTS runs on CPU intentionally. Do not install the CUDA build of
+# PyTorch just because an NVIDIA GPU exists: STT has its own CUDA runtime via
+# sherpa-onnx, which keeps the TTS stack smaller and avoids unnecessary CUDA
+# conflicts with the speech recognizer.
 $torchOk = $false
+$torchNeedsCpu = $false
 try {
-    & $venvPython -c "import torch; print(torch.__version__)" 2>$null | Out-Null
+    & $venvPython -c "import torch,sys; print(torch.__version__); print(torch.version.cuda or '')" 2>$null | Out-Null
     $torchOk = ($LASTEXITCODE -eq 0)
-} catch {}
-if (-not $torchOk) {
-    if ($hasNvidia) {
-        Write-Host "NVIDIA GPU detected. Installing PyTorch CUDA 12.8 build..." -ForegroundColor Cyan
-        & $venvPython -m pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
-    } else {
-        Write-Host "NVIDIA GPU not detected. Installing PyTorch CPU build..." -ForegroundColor Cyan
-        & $venvPython -m pip install torch==2.10.0 torchaudio==2.10.0
+    if ($torchOk) {
+        $torchCuda = & $venvPython -c "import torch; print(torch.version.cuda or '')" 2>$null
+        $torchNeedsCpu = -not [string]::IsNullOrWhiteSpace($torchCuda)
     }
-    if ($LASTEXITCODE -ne 0) { throw "PyTorch installation failed" }
+} catch {}
+if (-not $torchOk -or $torchNeedsCpu) {
+    if ($torchNeedsCpu) {
+        Write-Host "Replacing CUDA PyTorch with CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
+    } else {
+        Write-Host "Installing CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
+    }
+    & $venvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall --index-url "https://download.pytorch.org/whl/cpu" "torch==2.10.0+cpu"
+    if ($LASTEXITCODE -ne 0) { throw "CPU-only PyTorch installation failed" }
 }
 
 # ---------- Python dependencies ----------
 Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
 & $venvPython -m pip install -r (Join-Path $ProjectRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed" }
+
+# Override the base CPU sherpa wheel only after the requirements file has been
+# installed, so NVIDIA systems keep the CUDA-enabled build.
+# ---------- STT / sherpa-onnx ----------
+# The base requirements install the CPU wheel so manual/dev installs work.
+# On NVIDIA PCs we replace it with the CUDA 12.8 + cuDNN 9 build. The same
+# wheel can still run on CPU because the application selects the provider.
+$sherpaVersion = "1.13.8"
+$hasNvidia = $false
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    & nvidia-smi -L 2>$null | Out-Null
+    $hasNvidia = ($LASTEXITCODE -eq 0)
+}
+Write-Host "Preparing sherpa-onnx STT runtime..." -ForegroundColor Cyan
+if ($hasNvidia) {
+    & $venvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion+cuda12.cudnn9" -f "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "CUDA sherpa-onnx install failed. Keeping CPU sherpa-onnx fallback." -ForegroundColor Yellow
+        & $venvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion"
+        if ($LASTEXITCODE -ne 0) { throw "sherpa-onnx installation failed" }
+    }
+} else {
+    Write-Host "No NVIDIA GPU detected. CPU sherpa-onnx will be used." -ForegroundColor DarkYellow
+}
 
 # ---------- Node.js / VK bridge ----------
 $nodeInfo = Find-Node
