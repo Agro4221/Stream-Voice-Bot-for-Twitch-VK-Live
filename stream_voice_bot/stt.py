@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import urllib.request
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -129,6 +130,7 @@ class STTService:
         self.last_transcribe_result = "ещё не запускалось"
         self.gpu_runtime_dir: Path | None = None
         self.gpu_runtime_ready = False
+        self._translation_executor: ThreadPoolExecutor | None = None
 
     def _emit(self, **data):
         with self.lock:
@@ -177,6 +179,15 @@ class STTService:
             "last_error": self.last_error,
         }
 
+    def _translation_pool(self) -> ThreadPoolExecutor:
+        with self.lock:
+            if self._translation_executor is None:
+                self._translation_executor = ThreadPoolExecutor(
+                    max_workers=2,
+                    thread_name_prefix="stt-translate",
+                )
+            return self._translation_executor
+
     def save_config(self, **kwargs):
         next_chunk = kwargs.get("chunk_seconds", self.config.chunk_seconds)
         next_overlap = kwargs.get("overlap_seconds", self.config.overlap_seconds)
@@ -202,6 +213,12 @@ class STTService:
                     restart_reasons.append("модель" if key == "model_name" else "устройство")
                 setattr(self.config, key, value)
                 self.db.set_setting(allowed[key], str(value))
+                if key == "input_device" and value is not None:
+                    try:
+                        info = sd.query_devices(int(value), kind="input")
+                        self.db.set_setting("stt_input_device_name", str(info.get("name") or ""))
+                    except Exception:
+                        pass
         if restart_required:
             reason_text = " и ".join(restart_reasons)
             self._emit(
@@ -526,6 +543,8 @@ class STTService:
                 message=f"Загрузка STT: {self.config.model_name} на CPU int8…",
             )
             model_path = self._download_model(self.config.model_name)
+            if self.stop_event.is_set():
+                return
             self._set_loading_phase(
                 "model-init",
                 f"Загрузка модели STT в CPU: {self.config.model_name}…",
@@ -563,6 +582,8 @@ class STTService:
                 message=f"Загрузка STT: {self.config.model_name} на NVIDIA CUDA…",
             )
             model_path = self._download_model(self.config.model_name)
+            if self.stop_event.is_set():
+                return
             self._set_loading_phase(
                 "model-init",
                 f"Загрузка модели STT в GPU: {self.config.model_name}…",
@@ -577,6 +598,8 @@ class STTService:
             self.loaded_model_key = (str(self.config.model_name), "cuda")
 
         try:
+            if self.stop_event.is_set():
+                return
             if mode == "cpu":
                 load_cpu()
             elif mode == "cuda":
@@ -632,6 +655,18 @@ class STTService:
         self.loading_phase = "idle"
         self.loading_progress = None
         self.loading_rate_mbps = None
+        if self.stop_event.is_set():
+            self.model = None
+            self.runtime_device = None
+            self.runtime_compute_type = None
+            self.loaded_model_key = None
+            self.model_loading_started_at = None
+            self.loading_phase = "idle"
+            self.loading_progress = None
+            self.loading_rate_mbps = None
+            self._emit(running=False, model_loading=False, message="STT остановлен")
+            return
+
         self._emit(
             running=False,
             model_loading=False,
@@ -698,6 +733,11 @@ class STTService:
 
     def stop(self):
         self.stop_event.set()
+        with self.lock:
+            executor = self._translation_executor
+            self._translation_executor = None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
         # Hide the old runtime backend immediately. The worker may take a short
         # time to unwind, but the UI must not keep reporting a stale CUDA device
         # after the user selected CPU (or vice versa).
@@ -1023,11 +1063,7 @@ class STTService:
                                             message=f"Перевод {source_language} → {target}: {type(e).__name__}: {e}",
                                         )
 
-                                threading.Thread(
-                                    target=translate_one,
-                                    name=f"stt-translate-{target_language}",
-                                    daemon=True,
-                                ).start()
+                                self._translation_pool().submit(translate_one)
                 except Exception as e:
                     self.last_transcribe_duration = max(0.0, time.monotonic() - transcribe_started)
                     self.last_transcribe_result = f"ошибка: {type(e).__name__}"
