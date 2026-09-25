@@ -311,6 +311,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     device_task: asyncio.Task | None = None
     event_recovery_task: asyncio.Task | None = None
     twitch_reconcile_task: asyncio.Task | None = None
+    twitch_fulfillment_tasks: dict[str, asyncio.Task] = {}
     vk_recent_chat: dict[tuple[str, str], float] = {}
     vk_recent_reward: dict[tuple[str, str], float] = {}
     VK_REWARD_DEDUPE_SECONDS = 30.0
@@ -514,11 +515,10 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                 current_id = (queue_state.get("current") or {}).get("history_id")
                 queued_ids = {item.get("history_id") for item in (queue_state.get("queued") or [])}
                 if terminal:
-                    asyncio.create_task(
-                        fulfill_after(existing["id"], reward_id, redemption_id, event_key)
-                    )
+                    schedule_twitch_fulfillment(existing["id"], reward_id, redemption_id, event_key)
                     return
                 if current_id == existing["id"] or existing["id"] in queued_ids:
+                    schedule_twitch_fulfillment(existing["id"], reward_id, redemption_id, event_key)
                     return
                 history_id = queue.enqueue(
                     QueueItem(user_input, username, "twitch-channel-points"),
@@ -536,9 +536,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             twitch_status["message"] = (
                 f"Channel Points: {username} → «Озвучить сообщение» добавлено в очередь."
             )
-            asyncio.create_task(
-                fulfill_after(history_id, reward_id, redemption_id, event_key)
-            )
+            schedule_twitch_fulfillment(history_id, reward_id, redemption_id, event_key)
         except Exception as e:
             db.mark_event_failed(event_key, e)
             log.exception("Twitch redemption could not be queued: %s", e)
@@ -567,6 +565,29 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                             return
                         await asyncio.sleep(1.5 * (attempt + 1))
             await asyncio.sleep(0.5)
+
+    def schedule_twitch_fulfillment(history_id: int, reward_id: str, redemption_id: str, event_key: str):
+        existing_task = twitch_fulfillment_tasks.get(event_key)
+        if existing_task and not existing_task.done():
+            return existing_task
+
+        task = asyncio.create_task(
+            fulfill_after(history_id, reward_id, redemption_id, event_key),
+            name=f"twitch-fulfillment-{event_key[-40:]}",
+        )
+        twitch_fulfillment_tasks[event_key] = task
+
+        def _cleanup(done_task: asyncio.Task):
+            if twitch_fulfillment_tasks.get(event_key) is done_task:
+                twitch_fulfillment_tasks.pop(event_key, None)
+            if not done_task.cancelled():
+                try:
+                    done_task.result()
+                except Exception:
+                    log.exception("Twitch fulfillment task failed for %s", event_key)
+
+        task.add_done_callback(_cleanup)
+        return task
 
     async def recover_pending_event_inbox(include_queued: bool = True):
         rows = await asyncio.to_thread(db.pending_events, 500, include_queued)
@@ -620,7 +641,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     async def _event_recovery_loop():
         while True:
-            await recover_pending_event_inbox(include_queued=False)
+            await recover_pending_event_inbox(include_queued=True)
             await asyncio.sleep(30)
 
     async def _twitch_reconcile_loop():
@@ -672,6 +693,10 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                     pass
         event_recovery_task = None
         twitch_reconcile_task = None
+        for task in list(twitch_fulfillment_tasks.values()):
+            if not task.done():
+                task.cancel()
+        twitch_fulfillment_tasks.clear()
         if device_task and not device_task.done():
             device_task.cancel()
             try:
