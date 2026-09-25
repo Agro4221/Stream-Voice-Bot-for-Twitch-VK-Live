@@ -67,7 +67,7 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn(".build_venv", src)
         self.assertIn("torch==2.10.0+cpu", src)
         self.assertIn("https://download.pytorch.org/whl/cpu", src)
-        self.assertIn("sherpa-onnx==1.13.7+cuda12.cudnn9", src)
+        self.assertIn("sherpa-onnx==1.13.8+cuda12.cudnn9", src)
         self.assertIn("https://k2-fsa.github.io/sherpa/onnx/cuda.html", src)
         self.assertIn("The existing dist/ folder will not be touched.", src)
         self.assertIn("Copy-Item $BuiltBundle $FinalStage -Recurse -Force", src)
