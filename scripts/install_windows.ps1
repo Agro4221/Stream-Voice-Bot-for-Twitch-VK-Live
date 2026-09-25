@@ -198,11 +198,6 @@ Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
 & $venvPython -m pip install -r (Join-Path $ProjectRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed" }
 
-# ---------- Python dependencies ----------
-Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
-& $venvPython -m pip install -r (Join-Path $ProjectRoot "requirements.txt")
-if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed" }
-
 # Override the base CPU sherpa wheel only after the requirements file has been
 # installed, so NVIDIA systems keep the CUDA-enabled build.
 # ---------- STT / sherpa-onnx ----------
