@@ -75,9 +75,6 @@ class Database:
                 seen_at REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_event_dedupe_seen_at ON event_dedupe(seen_at);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_history_external_event_id
-                ON history(external_event_id)
-                WHERE external_event_id IS NOT NULL;
             CREATE TABLE IF NOT EXISTS event_inbox (
                 event_key TEXT PRIMARY KEY,
                 platform TEXT NOT NULL,
