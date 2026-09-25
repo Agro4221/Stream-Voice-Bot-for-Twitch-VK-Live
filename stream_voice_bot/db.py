@@ -203,13 +203,14 @@ class Database:
                 (str(error)[:2000], now, key),
             )
 
-    def pending_events(self, limit=100):
+    def pending_events(self, limit=100, include_queued=True):
         with self.lock, self._connect() as conn:
+            status_clause = "status != 'done'" if include_queued else "status = 'pending'"
             rows = conn.execute(
-                """SELECT event_key,platform,event_type,payload_json,status,history_id,attempts,last_error,created_at,updated_at
-                   FROM event_inbox
-                   WHERE status != 'done'
-                   ORDER BY created_at ASC LIMIT ?""",
+                f"""SELECT event_key,platform,event_type,payload_json,status,history_id,attempts,last_error,created_at,updated_at
+                    FROM event_inbox
+                    WHERE {status_clause}
+                    ORDER BY created_at ASC LIMIT ?""",
                 (max(1, min(int(limit), 500)),),
             ).fetchall()
             return [dict(row) for row in rows]
