@@ -463,35 +463,23 @@ class STTService:
 
         provider = "cpu"
         if self._nvidia_gpu_present():
-            gpu_error = None
             try:
                 self._set_loading_phase("model-init", "Проверяю NVIDIA CUDA для STT…")
                 self._prepare_windows_cuda_dll_search()
                 recognizer = self._build_recognizer("cuda")
                 provider = "cuda"
-            except Exception as first_gpu_error:
-                gpu_error = first_gpu_error
-                try:
-                    if not self._gpu_runtime_is_ready():
-                        self._emit(
-                            running=False,
-                            model_loading=True,
-                            message="Системная CUDA недоступна; готовлю локальный NVIDIA runtime для STT…",
-                        )
-                        self._ensure_gpu_runtime()
-                    self._set_loading_phase("model-init", "Повторно запускаю T-one на NVIDIA CUDA…")
-                    recognizer = self._build_recognizer("cuda")
-                    provider = "cuda"
-                except Exception as second_gpu_error:
-                    gpu_error = second_gpu_error
-                    detail = f"{type(first_gpu_error).__name__}: {first_gpu_error}; retry: {type(second_gpu_error).__name__}: {second_gpu_error}"
-                    self._emit(
-                        running=False,
-                        model_loading=True,
-                        message=f"CUDA STT недоступна ({detail}); перехожу на CPU T-one…",
-                    )
-                    recognizer = self._build_recognizer("cpu")
-                    provider = "cpu"
+            except Exception as gpu_error:
+                # Do not block startup by downloading a huge CUDA runtime.
+                # The user needs working subtitles first; use the same T-one model on CPU.
+                detail = f"{type(gpu_error).__name__}: {gpu_error}"
+                self._emit(
+                    running=False,
+                    model_loading=True,
+                    message=f"CUDA STT недоступна ({detail}); сразу запускаю CPU T-one…",
+                )
+                self._set_loading_phase("model-init", "CPU fallback: запускаю T-one…")
+                recognizer = self._build_recognizer("cpu")
+                provider = "cpu"
         else:
             self._set_loading_phase("model-init", "NVIDIA GPU не найдена — запускаю CPU T-one…")
             recognizer = self._build_recognizer("cpu")
