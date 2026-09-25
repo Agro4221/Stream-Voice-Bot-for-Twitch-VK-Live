@@ -2,7 +2,7 @@ name: Build Windows EXE candidate
 
 on:
   push:
-    branches: ["exe-packaging-v1.1.9-release-candidate"]
+    branches: ["exe-packaging-v*-release-candidate"]
   workflow_dispatch:
 
 concurrency:
