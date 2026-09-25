@@ -30,7 +30,9 @@ else:
     _SHERPA_IMPORT_ERROR = None
 
 
-log = logging.getLogger(__name__)\n\n_HALLUCINATION_CREDIT_RE = re.compile(
+log = logging.getLogger(__name__)
+
+_HALLUCINATION_CREDIT_RE = re.compile(
     r"(?:\b(?:subtitles?|captions?)\s+(?:made|created|provided)\s+by\b|"
     r"\b(?:субтитры|субтитров)\s+(?:сделан|создан|предоставлен)(?:ы|о)?\s+(?:кем|автором)?\b)",
     re.IGNORECASE,
