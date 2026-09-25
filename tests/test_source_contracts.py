@@ -130,6 +130,12 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("очень низкий уровень сигнала", web)
         self.assertIn('disabled><option>float16</option><option>int8</option>', web)
 
+    def test_stt_loader_restart_waits_for_inflight_start(self):
+        src = self.read("stream_voice_bot/app.py")
+        self.assertIn("loading = bool(stt.start_thread and stt.start_thread.is_alive())", src)
+        self.assertIn("if stt.stop_event.is_set():", src)
+        self.assertIn("Предыдущая загрузка STT ещё не остановилась", src)
+
     def test_stt_runtime_diagnostics_and_restart_contract(self):
         stt = self.read("stream_voice_bot/stt.py")
         app = self.read("stream_voice_bot/app.py")
