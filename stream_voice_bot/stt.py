@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
 import shutil
+import subprocess
 import sys
-import tarfile
 import tempfile
 import threading
 import time
@@ -27,10 +28,10 @@ else:
     _SHERPA_IMPORT_ERROR = None
 
 
-_HALLUCINATION_CREDIT_RE = __import__("re").compile(
+_HALLUCINATION_CREDIT_RE = re.compile(
     r"(?:\b(?:subtitles?|captions?)\s+(?:made|created|provided)\s+by\b|"
     r"\b(?:субтитры|субтитров)\s+(?:сделан|создан|предоставлен)(?:ы|о)?\s+(?:кем|автором)?\b)",
-    __import__("re").IGNORECASE,
+    re.IGNORECASE,
 )
 
 T_ONE_MODEL_URL = (
@@ -225,12 +226,12 @@ class STTService:
                 candidates.append(str(system32))
         for command in candidates:
             try:
-                proc = __import__("subprocess").run(
+                proc = subprocess.run(
                     [command, "-L"],
                     capture_output=True,
                     text=True,
                     timeout=5,
-                    creationflags=getattr(__import__("subprocess"), "CREATE_NO_WINDOW", 0),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 if proc.returncode == 0 and any(
                     line.strip() for line in proc.stdout.splitlines()
@@ -304,17 +305,26 @@ class STTService:
                     )
             if archive_path.stat().st_size != expected_size:
                 raise RuntimeError("NVIDIA runtime download size mismatch")
-            with tarfile.open(archive_path, "r:*") as archive:
-                members = [
-                    m for m in archive.getmembers()
-                    if m.isfile() and m.name.lower().endswith(".dll")
-                ]
-                for member in members:
-                    member_name = Path(member.name).name
-                    if member_name:
-                        target = runtime_dir / member_name
-                        with archive.extractfile(member) as src, target.open("wb") as dst:
-                            shutil.copyfileobj(src, dst)
+            tar_exe = shutil.which("tar")
+            if not tar_exe:
+                raise RuntimeError("Windows tar.exe не найден; не могу распаковать локальный CUDA runtime.")
+            extract_dir = runtime_dir.parent / ".gpu_runtime_extract"
+            if extract_dir.exists():
+                shutil.rmtree(extract_dir, ignore_errors=True)
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            proc = subprocess.run(
+                [tar_exe, "-xf", str(archive_path), "-C", str(extract_dir)],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "").strip()
+                raise RuntimeError(f"Не удалось распаковать NVIDIA runtime: {detail}")
+            for dll in extract_dir.rglob("*.dll"):
+                shutil.copy2(dll, runtime_dir / dll.name)
+            shutil.rmtree(extract_dir, ignore_errors=True)
             if not self._gpu_runtime_is_ready():
                 raise RuntimeError("NVIDIA runtime unpacked but required DLLs are missing")
             return True
@@ -447,21 +457,35 @@ class STTService:
 
         provider = "cpu"
         if self._nvidia_gpu_present():
+            gpu_error = None
             try:
-                if not self._gpu_runtime_is_ready():
-                    self._ensure_gpu_runtime()
-                self._set_loading_phase("model-init", "Запускаю T-one на NVIDIA CUDA…")
+                self._set_loading_phase("model-init", "Проверяю NVIDIA CUDA для STT…")
+                self._prepare_windows_cuda_dll_search()
                 recognizer = self._build_recognizer("cuda")
                 provider = "cuda"
-            except Exception as gpu_error:
-                detail = f"{type(gpu_error).__name__}: {gpu_error}"
-                self._emit(
-                    running=False,
-                    model_loading=True,
-                    message=f"CUDA STT недоступна ({detail}); перехожу на CPU T-one…",
-                )
-                recognizer = self._build_recognizer("cpu")
-                provider = "cpu"
+            except Exception as first_gpu_error:
+                gpu_error = first_gpu_error
+                try:
+                    if not self._gpu_runtime_is_ready():
+                        self._emit(
+                            running=False,
+                            model_loading=True,
+                            message="Системная CUDA недоступна; готовлю локальный NVIDIA runtime для STT…",
+                        )
+                        self._ensure_gpu_runtime()
+                    self._set_loading_phase("model-init", "Повторно запускаю T-one на NVIDIA CUDA…")
+                    recognizer = self._build_recognizer("cuda")
+                    provider = "cuda"
+                except Exception as second_gpu_error:
+                    gpu_error = second_gpu_error
+                    detail = f"{type(first_gpu_error).__name__}: {first_gpu_error}; retry: {type(second_gpu_error).__name__}: {second_gpu_error}"
+                    self._emit(
+                        running=False,
+                        model_loading=True,
+                        message=f"CUDA STT недоступна ({detail}); перехожу на CPU T-one…",
+                    )
+                    recognizer = self._build_recognizer("cpu")
+                    provider = "cpu"
         else:
             self._set_loading_phase("model-init", "NVIDIA GPU не найдена — запускаю CPU T-one…")
             recognizer = self._build_recognizer("cpu")
