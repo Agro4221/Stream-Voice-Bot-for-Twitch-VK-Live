@@ -1135,21 +1135,57 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         with subtitle_lock:
             return {"ok": True, "track_id": track_id, "state": subtitle_state.get(track_id), "tracks": subtitle_tracks}
 
+    async def _test_subtitle_track(track: dict):
+        test_text = "Тест субтитров ✓"
+        track_id = str(track.get("id", "")).strip().lower()
+        language = str(track.get("language", "ru")).strip().lower().split("-")[0] or "ru"
+        mode = str(track.get("mode", "source")).strip()
+        source_language = (db.get_setting("stt_language", "ru") or "ru").strip().lower().split("-")[0] or "ru"
+        rendered = test_text
+        if mode == "translate" and language != source_language:
+            try:
+                rendered = await asyncio.to_thread(
+                    translator.translate,
+                    test_text,
+                    source_language,
+                    language,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Перевод {source_language} → {language} не готов: {type(exc).__name__}: {exc}"
+                ) from exc
+        ts = time.time()
+        with subtitle_lock:
+            subtitle_state.setdefault(
+                track_id,
+                {"text": "", "timestamp": 0, "language": language},
+            )
+            subtitle_state[track_id].update({
+                "text": rendered,
+                "timestamp": ts,
+                "language": language,
+            })
+        return {
+            "ok": True,
+            "track_id": track_id,
+            "text": rendered,
+            "timestamp": ts,
+            "language": language,
+            "mode": mode,
+        }
+
     @app.post("/api/subtitles/test/{track_id}")
     async def subtitle_track_test(track_id: str):
         track_id = str(track_id or "").strip().lower()
         if not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
             raise HTTPException(400, "Invalid subtitle track id")
-        with subtitle_lock:
-            if track_id not in subtitle_state:
-                raise HTTPException(404, "Subtitle track not found")
-            ts = time.time()
-            subtitle_state[track_id].update({
-                "text": "Тест субтитров ✓",
-                "timestamp": ts,
-                "language": subtitle_state[track_id].get("language", "ru"),
-            })
-        return {"ok": True, "track_id": track_id, "text": "Тест субтитров ✓", "timestamp": ts}
+        track = next((t for t in subtitle_tracks if str(t.get("id", "")).strip().lower() == track_id), None)
+        if track is None:
+            raise HTTPException(404, "Subtitle track not found. Сначала сохрани дорожку.")
+        try:
+            return await _test_subtitle_track(track)
+        except RuntimeError as exc:
+            raise HTTPException(500, str(exc)) from exc
 
     @app.post("/api/subtitles/test")
     async def subtitles_test():
@@ -1158,10 +1194,33 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         on_subtitle({
             "source": True,
             "text": test_text,
-            "language": "ru",
+            "language": db.get_setting("stt_language", "ru") or "ru",
             "timestamp": ts,
         })
-        return {"ok": True, "text": test_text, "timestamp": ts}
+        pending = []
+        for track in subtitle_tracks:
+            if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
+                continue
+            track_id = str(track.get("id", "")).strip().lower()
+            task = asyncio.create_task(
+                _test_subtitle_track(track),
+                name=f"subtitle-test-{track_id or 'track'}",
+            )
+            pending.append(track_id)
+
+            def _report_translation_result(done_task, tid=track_id):
+                try:
+                    done_task.result()
+                except Exception as exc:
+                    log.warning("Subtitle test failed for track %s: %s", tid, exc)
+
+            task.add_done_callback(_report_translation_result)
+        return {
+            "ok": True,
+            "text": test_text,
+            "timestamp": ts,
+            "translation_tracks_pending": pending,
+        }
 
     @app.post("/api/subtitles/prepare")
     async def subtitles_prepare():
