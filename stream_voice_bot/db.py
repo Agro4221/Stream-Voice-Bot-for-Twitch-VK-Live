@@ -163,13 +163,7 @@ class Database:
                 ) VALUES(?,?,?,?, 'pending',0,?,?)""",
                 (key, str(platform), str(event_type), str(payload_json), now, now),
             )
-            row = conn.execute(
-                "SELECT status FROM event_inbox WHERE event_key=?",
-                (key,),
-            ).fetchone()
-            if cur.rowcount == 1:
-                return True
-            return bool(row and row["status"] != "done")
+            return cur.rowcount == 1
 
     def mark_event_queued(self, event_key, history_id):
         key = str(event_key or "").strip()
