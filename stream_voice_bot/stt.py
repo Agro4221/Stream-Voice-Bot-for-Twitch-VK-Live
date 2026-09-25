@@ -153,6 +153,20 @@ class STTService:
                 self.last_error = str(data.get("last_error") or "")
         self.on_status(data)
 
+    def _set_loading_phase(self, phase: str, message: str, progress: float | None = None, rate_mbps: float | None = None):
+        with self.lock:
+            self.loading_phase = str(phase or "idle")
+            self.loading_progress = progress
+            self.loading_rate_mbps = rate_mbps
+        self._emit(
+            running=False,
+            model_loading=True,
+            loading_phase=self.loading_phase,
+            loading_progress=self.loading_progress,
+            loading_rate_mbps=self.loading_rate_mbps,
+            message=message,
+        )
+
     def state(self):
         return {
             "running": bool(self.thread and self.thread.is_alive()),
