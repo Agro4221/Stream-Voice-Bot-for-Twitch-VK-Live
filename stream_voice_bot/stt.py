@@ -825,7 +825,7 @@ class STTService:
         for track in tracks:
             if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
                 continue
-            track_id = str(track.get("id", target_language)).strip().lower()
+            track_id = str(track.get("id", "")).strip().lower()
             target_language = str(track.get("language", "")).strip().lower().split("-")[0]
             source_language = (self.config.language or "ru").lower().split("-")[0]
             if not target_language or target_language == source_language:
