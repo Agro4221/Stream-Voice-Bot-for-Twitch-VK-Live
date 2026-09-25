@@ -285,6 +285,7 @@ label{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 </main>
 
 <script>
+window.__SVB_LOCAL_TOKEN__ = "__SVB_LOCAL_TOKEN__";
 function showShutdownPopup(){
   let popup=document.getElementById('shutdownPopup');
   if(!popup){
@@ -326,7 +327,8 @@ async function shutdownBot(){
 }
 
 async function api(url, options={}){
-  const r=await fetch(url,{headers:{'Content-Type':'application/json'},...options});
+  const headers=Object.assign({'Content-Type':'application/json','X-StreamVoiceBot-Local':window.__SVB_LOCAL_TOKEN__||''},options.headers||{});
+  const r=await fetch(url,{...options,headers});
   const data=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(data.detail||'HTTP '+r.status);
   return data;
