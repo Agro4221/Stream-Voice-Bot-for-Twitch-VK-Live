@@ -824,6 +824,7 @@ class STTService:
         requested format doesn't exactly match the device mix format.
         """
         requested_device = self.config.input_device
+        requested = max(1, int(self.config.sample_rate))
         device_candidates = [requested_device]
         if requested_device is not None:
             device_candidates.append(None)
@@ -831,7 +832,12 @@ class STTService:
         errors = []
 
         for device_override in device_candidates:
-            requested, rates, max_input_channels, hostapi_name, actual_device = self._candidate_input_rates(device_override)
+            try:
+                requested, rates, max_input_channels, hostapi_name, actual_device = self._candidate_input_rates(device_override)
+            except Exception as e:
+                device_label = "default input" if device_override is None else f"device {device_override}"
+                errors.append(f"{device_label}: device query failed: {type(e).__name__}: {e}")
+                continue
             is_wasapi = "WASAPI" in hostapi_name.upper()
             channels = [2, 1] if max_input_channels >= 2 else [1]
 
