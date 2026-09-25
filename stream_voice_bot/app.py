@@ -445,7 +445,6 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
                     event_key=event_key,
                 )
             db.mark_event_queued(event_key, history_id)
-            db.mark_event_done(event_key)
             vk_status["last_event"] = f"VK награда: {username}"
             vk_status["message"] = "Награда принята в очередь озвучки."
             log.info("VK reward queued: user=%s", username)
