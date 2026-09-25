@@ -227,12 +227,14 @@ def main() -> None:
             self.last_sample_rate = 48000
             self._paused = False
             self._stopped = False
+            self.play_calls = 0
 
         @property
         def paused(self):
             return self._paused
 
         def play(self, *_args, **_kwargs):
+            self.play_calls += 1
             return "stopped" if self._stopped else "finished"
 
         def pause(self):
@@ -273,6 +275,32 @@ def main() -> None:
         assert fake_db.get_history(first_id)["status"] == "finished"
     finally:
         queue.shutdown()
+
+    # Stop during Silero generation must prevent the generated audio from
+    # reaching the player once generation returns.
+    stop_db = FakeDB()
+    stop_model = BlockingModel()
+    stop_player = FakePlayer()
+    stop_queue = tts_module.TTSQueue(
+        model=stop_model,
+        player=stop_player,
+        speaker_getter=lambda: "xenia",
+        history_db=stop_db,
+        max_chars_getter=lambda: 1000,
+        volume_setter=lambda: 0.0,
+    )
+    try:
+        stop_id = stop_queue.enqueue(QueueItem("stop during generation", "u3", "test"))
+        assert stop_model.started.wait(5)
+        stop_queue.stop()
+        stop_model.release.set()
+        deadline = time.time() + 5
+        while time.time() < deadline and stop_db.get_history(stop_id)["status"] not in {"stopped", "finished", "error"}:
+            time.sleep(0.05)
+        assert stop_db.get_history(stop_id)["status"] == "stopped"
+        assert stop_player.play_calls == 0
+    finally:
+        stop_queue.shutdown()
 
     # Basic normalization should remain usable under the installed dependency set.
     normalized = normalize_module.normalize_for_tts("Привет 25% и 12:30!")
