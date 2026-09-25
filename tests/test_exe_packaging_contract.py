@@ -81,6 +81,14 @@ class ExePackagingContractTests(unittest.TestCase):
         self.assertIn('$localHeaders = @{ "X-StreamVoiceBot-Local" = $tokenMatch.Groups[1].Value }', src)
         self.assertIn('-Headers $localHeaders', src)
 
+    def test_release_and_candidate_workflows_track_versioned_candidate_branch(self):
+        release = self.read(".github/workflows/release.yml")
+        candidate = self.read(".github/workflows/exe-build-candidate.yml")
+        self.assertIn('candidate_branch="exe-packaging-v${version}-release-candidate"', release)
+        self.assertIn('--branch "$candidate_branch"', release)
+        self.assertIn('branches: ["exe-packaging-v*-release-candidate"]', candidate)
+        self.assertNotIn("exe-packaging-v1.1.9-release-candidate", release)
+
     def test_release_build_output_is_ignored(self):
         src = self.read(".gitignore")
         self.assertIn(".build_venv/", src)
