@@ -149,7 +149,7 @@ class StabilityDatabaseTests(unittest.TestCase):
             def __init__(self):
                 self.rows = {}
 
-            def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
+            def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued", external_event_id=None):
                 hid = len(self.rows) + 1
                 self.rows[hid] = status
                 return hid
