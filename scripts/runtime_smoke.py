@@ -251,6 +251,9 @@ def main() -> None:
             self._stopped = True
             self._paused = False
 
+        def clear_interrupts(self):
+            self._stopped = False
+
     fake_db = FakeDB()
     blocking_model = BlockingModel()
     fake_player = FakePlayer()
@@ -299,6 +302,13 @@ def main() -> None:
             time.sleep(0.05)
         assert stop_db.get_history(stop_id)["status"] == "stopped"
         assert stop_player.play_calls == 0
+
+        second_id = stop_queue.enqueue(QueueItem("after stop", "u4", "test"))
+        deadline = time.time() + 5
+        while time.time() < deadline and stop_db.get_history(second_id)["status"] not in {"finished", "error"}:
+            time.sleep(0.05)
+        assert stop_db.get_history(second_id)["status"] == "finished"
+        assert stop_player.play_calls == 1
     finally:
         stop_queue.shutdown()
 
