@@ -257,6 +257,7 @@ class AudioPlayer:
 
     def stop(self): self.stop_event.set(); self.pause_event.clear()
     def skip(self): self.skip_event.set(); self.pause_event.clear()
+    def clear_interrupts(self): self.stop_event.clear(); self.skip_event.clear()
     def pause(self): self.pause_event.set()
     def resume(self): self.pause_event.clear()
     @property
@@ -365,6 +366,9 @@ class TTSQueue:
                         action = self.current_action
                     if action in {"stopped", "skipped"}:
                         result = action
+                        clear_interrupts = getattr(self.player, "clear_interrupts", None)
+                        if clear_interrupts:
+                            clear_interrupts()
                     else:
                         result = self.player.play(
                             audio,
