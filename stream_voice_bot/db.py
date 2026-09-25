@@ -119,8 +119,23 @@ class Database:
 
             # Older releases created chat_messages without the current
             # message metadata columns. SQLite cannot add a UNIQUE constraint
-            # to an existing table with ALTER TABLE, so the duplicate guard is
-            # handled by save_chat_message() and event_dedupe instead.
+            # with ALTER TABLE, so deduplicate legacy rows before adding the
+            # equivalent partial UNIQUE index used by new databases.
+            conn.execute(
+                """DELETE FROM chat_messages
+                   WHERE message_id IS NOT NULL
+                     AND id NOT IN (
+                         SELECT MIN(id)
+                         FROM chat_messages
+                         WHERE message_id IS NOT NULL
+                         GROUP BY platform, message_id
+                     )"""
+            )
+            conn.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_platform_message_id
+                   ON chat_messages(platform, message_id)
+                   WHERE message_id IS NOT NULL"""
+            )
 
     def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued", external_event_id=None):
         with self.lock, self._connect() as conn:
