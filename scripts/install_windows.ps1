@@ -189,35 +189,43 @@ if (-not $torchOk -or $torchNeedsCpu) {
     } else {
         Write-Host "Installing CPU-only PyTorch for Silero TTS..." -ForegroundColor Cyan
     }
-    & $venvPython -m pip install --upgrade --force-reinstall torch==2.10.0
-    if ($LASTEXITCODE -ne 0) { throw "PyTorch installation failed" }
+    & $venvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall --index-url "https://download.pytorch.org/whl/cpu" "torch==2.10.0+cpu"
+    if ($LASTEXITCODE -ne 0) { throw "CPU-only PyTorch installation failed" }
 }
-
-# ---------- STT / sherpa-onnx ----------
-# T-one is a streaming Russian CTC model. On NVIDIA PCs we install the
-# CUDA 12 + cuDNN 9 wheel; otherwise the regular CPU wheel is enough.
-$hasNvidia = $false
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    & nvidia-smi -L 2>$null | Out-Null
-    $hasNvidia = ($LASTEXITCODE -eq 0)
-}
-$sherpaVersion = "1.13.7"
-Write-Host "Preparing sherpa-onnx STT runtime..." -ForegroundColor Cyan
-if ($hasNvidia) {
-    & $venvPython -m pip install --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion+cuda12.cudnn9" --no-index -f "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "CUDA sherpa-onnx install failed. Falling back to CPU sherpa-onnx..." -ForegroundColor Yellow
-        & $venvPython -m pip install --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion"
-    }
-} else {
-    & $venvPython -m pip install --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion"
-}
-if ($LASTEXITCODE -ne 0) { throw "sherpa-onnx installation failed" }
 
 # ---------- Python dependencies ----------
 Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
 & $venvPython -m pip install -r (Join-Path $ProjectRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed" }
+
+# ---------- Python dependencies ----------
+Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
+& $venvPython -m pip install -r (Join-Path $ProjectRoot "requirements.txt")
+if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed" }
+
+# Override the base CPU sherpa wheel only after the requirements file has been
+# installed, so NVIDIA systems keep the CUDA-enabled build.
+# ---------- STT / sherpa-onnx ----------
+# The base requirements install the CPU wheel so manual/dev installs work.
+# On NVIDIA PCs we replace it with the CUDA 12.8 + cuDNN 9 build. The same
+# wheel can still run on CPU because the application selects the provider.
+$sherpaVersion = "1.13.7"
+$hasNvidia = $false
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    & nvidia-smi -L 2>$null | Out-Null
+    $hasNvidia = ($LASTEXITCODE -eq 0)
+}
+Write-Host "Preparing sherpa-onnx STT runtime..." -ForegroundColor Cyan
+if ($hasNvidia) {
+    & $venvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion+cuda12.cudnn9" -f "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "CUDA sherpa-onnx install failed. Keeping CPU sherpa-onnx fallback." -ForegroundColor Yellow
+        & $venvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall "sherpa-onnx==$sherpaVersion"
+        if ($LASTEXITCODE -ne 0) { throw "sherpa-onnx installation failed" }
+    }
+} else {
+    Write-Host "No NVIDIA GPU detected. CPU sherpa-onnx will be used." -ForegroundColor DarkYellow
+}
 
 # ---------- Node.js / VK bridge ----------
 $nodeInfo = Find-Node
