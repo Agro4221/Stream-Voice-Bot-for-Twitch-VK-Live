@@ -6,9 +6,9 @@ numpy
 scipy
 sounddevice>=0.4.7
 soundfile
-faster-whisper==1.2.1
 twitchio==3.3.2
 httpx
+sherpa-onnx==1.13.7
 keyring==25.7.0
 num2words==0.5.14
 
