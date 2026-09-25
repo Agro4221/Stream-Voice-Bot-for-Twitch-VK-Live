@@ -407,7 +407,7 @@ function renderSubtitleTracks(tracks){
         <option value="translate" ${(t.mode||'source')==='translate' || (t.mode||'')==='whisper-translate'?'selected':''}>Перевод на выбранный язык</option>
       </select></div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input data-k="enabled" type="checkbox" ${t.enabled!==false?'checked':''}> включена</label>
-      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack').dataset.id)">Тест</button>
+      <button class="secondary" onclick="testSubtitleTrack(this.closest('.subtrack'))">Тест</button>
       <button class="danger" onclick="this.closest('.subtrack').remove()">Удалить</button>
     </div>
     <div class="small" style="margin-top:7px">OBS: <code>http://127.0.0.1:8787/subtitles/${esc(t.id||'')}</code></div>
@@ -428,13 +428,32 @@ async function saveSubtitleTracks(){
   try{ const x=await api('/api/subtitles/tracks',{method:'POST',body:JSON.stringify({tracks:collectSubtitleTracks()})}); renderSubtitleTracks(x.tracks); document.getElementById('subtitleInfo').textContent='Дорожки субтитров сохранены.'; refresh(); }
   catch(e){ document.getElementById('subtitleInfo').textContent='Ошибка: '+e.message; }
 }
-async function testSubtitleTrack(id){
+async function testSubtitleTrack(row){
+  const info=document.getElementById('subtitleInfo');
   try{
+    let id='';
+    if(row && row.matches && row.matches('.subtrack')){
+      const rows=[...document.querySelectorAll('.subtrack')];
+      const index=rows.indexOf(row);
+      const draftTracks=collectSubtitleTracks();
+      id=String(draftTracks[index]?.id||'').trim().toLowerCase();
+      if(!id) throw new Error('У дорожки не задан ID');
+
+      // Test the values currently visible in the row, even when the user has
+      // not pressed "Сохранить дорожки" yet. This also handles an edited ID.
+      const saved=await api('/api/subtitles/tracks',{
+        method:'POST',
+        body:JSON.stringify({tracks:draftTracks})
+      });
+      renderSubtitleTracks(saved.tracks);
+    }else{
+      id=String(row||'').trim().toLowerCase();
+    }
     const x=await api('/api/subtitles/test/'+encodeURIComponent(id),{method:'POST'});
-    document.getElementById('subtitleInfo').textContent='Тест отправлен в дорожку '+id+': '+x.text;
-    refresh();
+    if(info) info.textContent='Тест отправлен в дорожку '+id+': '+x.text;
+    await refresh();
   }catch(e){
-    document.getElementById('subtitleInfo').textContent='Ошибка теста дорожки '+id+': '+e.message;
+    if(info) info.textContent='Ошибка теста дорожки: '+e.message;
   }
 }
 async function testSubtitles(){
