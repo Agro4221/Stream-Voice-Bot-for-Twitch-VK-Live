@@ -211,6 +211,35 @@ class StabilityDatabaseTests(unittest.TestCase):
             queue.shutdown()
 
 
+    def test_legacy_history_schema_gets_external_event_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-history.sqlite3"
+            import sqlite3
+            conn = sqlite3.connect(path)
+            conn.execute("""
+                CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    queued_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    duration_sec REAL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    repeat_of INTEGER,
+                    profile TEXT DEFAULT 'normal'
+                )
+            """)
+            conn.commit()
+            conn.close()
+
+            db = Database(path)
+            first = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:00", external_event_id="twitch:legacy")
+            second = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:01", external_event_id="twitch:legacy")
+            self.assertEqual(first, second)
+
     def test_legacy_chat_messages_schema_is_migrated(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.sqlite3"
