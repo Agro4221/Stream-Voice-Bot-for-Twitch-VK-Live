@@ -81,9 +81,18 @@ jobs:
             }
             Write-Host "Packaged EXE admin smoke test: OK"
 
+            # Mutating admin API calls require the local token injected into the admin page.
+            # Extract it from the page we just verified is serving.
+            $home = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8787/" -TimeoutSec 5
+            $tokenMatch = [regex]::Match($home.Content, 'window\.__SVB_LOCAL_TOKEN__\s*=\s*"([^"]+)"')
+            if (-not $tokenMatch.Success) {
+              throw "Packaged EXE admin page did not expose the local API token."
+            }
+            $localHeaders = @{ "X-StreamVoiceBot-Local" = $tokenMatch.Groups[1].Value }
+
             # Exercise the bundled Silero package far enough to catch hidden
             # imports that a simple HTTP health check cannot detect.
-            $tts = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8787/api/tts/test?profile=normal" -TimeoutSec 5
+            $tts = Invoke-RestMethod -Method Post -Headers $localHeaders -Uri "http://127.0.0.1:8787/api/tts/test?profile=normal" -TimeoutSec 5
             if (-not $tts.ok) {
               throw "Packaged EXE TTS test request was rejected."
             }
