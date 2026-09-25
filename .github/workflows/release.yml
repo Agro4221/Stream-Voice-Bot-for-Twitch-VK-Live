@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           if gh api --method PATCH "repos/${{ github.repository }}" \
-            -f description='Windows stream bot: Twitch + VK Video Live, Silero TTS, faster-whisper STT и OBS-субтитры. Сабы пока нестабильны; исправления в работе — я новичок ^_^' \
+            -f description='Windows stream bot: Twitch + VK Video Live, Silero TTS, T-one / sherpa-onnx STT и OBS-субтитры. Сабы пока нестабильны; исправления в работе — я новичок ^_^' \
             >/dev/null 2>&1; then
             echo "Repository description updated."
           else
