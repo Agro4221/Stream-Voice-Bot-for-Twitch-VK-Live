@@ -440,7 +440,10 @@ async function testSubtitleTrack(id){
 async function testSubtitles(){
   try{
     const x=await api('/api/subtitles/test',{method:'POST'});
-    document.getElementById('subtitleInfo').textContent='Тест отправлен: '+(x.text||'Тест субтитров');
+    const pending=Array.isArray(x.translation_tracks_pending)?x.translation_tracks_pending:[];
+    document.getElementById('subtitleInfo').textContent=pending.length
+      ? 'Тест оригинала отправлен. Переводы готовятся: '+pending.join(', ')+'.'
+      : 'Тест субтитров отправлен.';
     refresh();
   }catch(e){
     document.getElementById('subtitleInfo').textContent='Ошибка теста субтитров: '+e.message;
