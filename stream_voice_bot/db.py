@@ -237,6 +237,9 @@ class Database:
                 """
                 DELETE FROM history
                 WHERE status NOT IN ('queued', 'playing')
+                  AND (external_event_id IS NULL OR external_event_id NOT IN (
+                      SELECT event_key FROM event_inbox WHERE status != 'done'
+                  ))
                   AND id NOT IN (
                       SELECT id FROM history
                       ORDER BY id DESC
@@ -250,7 +253,11 @@ class Database:
         """Delete only terminal history rows; never remove active/queued TTS state."""
         with self.lock, self._connect() as conn:
             cur = conn.execute(
-                "DELETE FROM history WHERE status NOT IN ('queued', 'playing')"
+                """DELETE FROM history
+                   WHERE status NOT IN ('queued', 'playing')
+                     AND (external_event_id IS NULL OR external_event_id NOT IN (
+                         SELECT event_key FROM event_inbox WHERE status != 'done'
+                     ))"""
             )
             return cur.rowcount
 
