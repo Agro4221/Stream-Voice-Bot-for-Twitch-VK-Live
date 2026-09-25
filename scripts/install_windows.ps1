@@ -204,7 +204,7 @@ if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed" }
 # The base requirements install the CPU wheel so manual/dev installs work.
 # On NVIDIA PCs we replace it with the CUDA 12.8 + cuDNN 9 build. The same
 # wheel can still run on CPU because the application selects the provider.
-$sherpaVersion = "1.13.7"
+$sherpaVersion = "1.13.8"
 $hasNvidia = $false
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     & nvidia-smi -L 2>$null | Out-Null
