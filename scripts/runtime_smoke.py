@@ -146,9 +146,11 @@ def main() -> None:
                 assert payload["app"]["version"] == version
                 assert payload["queue"]["current"] is None
 
+                auth_headers = {"X-StreamVoiceBot-Local": app.state.local_api_token}
                 normalized_response = await client.post(
                     "/api/tts/normalize",
                     json={"text": "Привет 25% и 12:30!"},
+                    headers=auth_headers,
                 )
                 assert normalized_response.status_code == 200
                 assert "процентов" in normalized_response.json()["normalized"]
@@ -156,6 +158,7 @@ def main() -> None:
                 invalid_stt = await client.post(
                     "/api/stt/config",
                     json={"chunk_seconds": 1.0, "overlap_seconds": 1.0},
+                    headers=auth_headers,
                 )
                 assert invalid_stt.status_code == 400, invalid_stt.text
 
@@ -164,7 +167,7 @@ def main() -> None:
 
                 fake_server = FakeServer()
                 app.state.server = fake_server
-                shutdown = await client.post("/api/shutdown")
+                shutdown = await client.post("/api/shutdown", headers=auth_headers)
                 assert shutdown.status_code == 200, shutdown.text
                 deadline = time.time() + 3.0
                 while time.time() < deadline and not fake_server.should_exit:
