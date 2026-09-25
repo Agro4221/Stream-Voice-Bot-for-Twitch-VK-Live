@@ -243,7 +243,7 @@ class TwitchService:
             if r.status_code == 200:
                 return True
             if r.status_code == 401 and self.refresh_token():
-                await self.refresh_access_token()
+                await self.refresh_access_token(token)
                 return True
             return False
 
