@@ -602,6 +602,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
 
     # Completion callback is kept lightweight. Twitch fulfillment polls DB.
     app.state.db = db
+    app.state.local_api_token = local_api_token
     app.state.tts_model = model
     app.state.tts_queue = queue
     app.state.player = player
