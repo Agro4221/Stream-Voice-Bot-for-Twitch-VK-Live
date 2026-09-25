@@ -264,12 +264,14 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("runtime_dir = Path(data_root) / \"gpu_runtime\"", stt)
 
 
-    def test_stt_checks_nvidia_gpu_before_runtime_download(self):
+    def test_stt_falls_back_to_cpu_without_blocking_on_cuda_runtime_download(self):
         stt = self.read("stream_voice_bot/stt.py")
         web = self.read("stream_voice_bot/web/index.html")
         self.assertIn("def _nvidia_gpu_present(self)", stt)
-        self.assertIn("if not self._nvidia_gpu_present():", stt)
-        self.assertIn("GPU runtime не скачивается.", stt)
+        load_model = stt.split("    def _load_model(self):", 1)[1].split("    def start(self):", 1)[0]
+        self.assertNotIn("self._ensure_gpu_runtime()", load_model)
+        self.assertIn("сразу запускаю CPU T-one", load_model)
+        self.assertIn('self._build_recognizer("cpu")', load_model)
         self.assertIn("проверяет наличие NVIDIA GPU", web)
 
 
