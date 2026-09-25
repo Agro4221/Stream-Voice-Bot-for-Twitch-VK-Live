@@ -248,6 +248,39 @@ class StabilityDatabaseTests(unittest.TestCase):
         log_buffer.clear()
         self.assertEqual(log_buffer.get_logs(10), [])
 
+    def test_durable_event_inbox_is_first_delivery_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            payload = '{"id":"abc"}'
+            self.assertTrue(db.record_event("twitch:abc", "twitch", "redemption", payload))
+            self.assertFalse(db.record_event("twitch:abc", "twitch", "redemption", payload))
+            pending = db.pending_events()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["event_key"], "twitch:abc")
+            db.mark_event_done("twitch:abc")
+            self.assertEqual(db.pending_events(), [])
+
+    def test_history_external_event_id_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            first = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:00", external_event_id="twitch:abc")
+            second = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:01", external_event_id="twitch:abc")
+            self.assertEqual(first, second)
+            self.assertEqual(len(db.history(100)), 1)
+
+    def test_clear_history_keeps_pending_event_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "test.sqlite3")
+            self.assertTrue(db.record_event("twitch:abc", "twitch", "redemption", '{"id":"abc"}'))
+            hid = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:00", status="finished", external_event_id="twitch:abc")
+            removed = db.clear_history()
+            self.assertEqual(removed, 0)
+            self.assertIsNotNone(db.get_history(hid))
+            db.mark_event_done("twitch:abc")
+            removed = db.clear_history()
+            self.assertEqual(removed, 1)
+            self.assertIsNone(db.get_history(hid))
+
     def test_event_claim_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
