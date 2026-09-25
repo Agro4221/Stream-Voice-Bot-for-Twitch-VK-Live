@@ -143,6 +143,24 @@ class StabilitySourceContractTests(unittest.TestCase):
         self.assertIn("NVIDIA CUDA", web)
         self.assertIn("CPU fallback", web)
 
+    def test_stt_startup_errors_are_visible_and_model_archive_can_extract(self):
+        stt = self.read("stream_voice_bot/stt.py")
+        self.assertIn("import tarfile", stt)
+        self.assertIn("STT startup failed", stt)
+        self.assertIn('message=f"Ошибка запуска STT: {detail}"', stt)
+        self.assertIn('loading_phase = "error"', stt)
+
+    def test_subtitle_tests_cover_translation_tracks_and_stale_results(self):
+        app = self.read("stream_voice_bot/app.py")
+        stt = self.read("stream_voice_bot/stt.py")
+        web = self.read("stream_voice_bot/web/index.html")
+        self.assertIn("translator.translate", app)
+        self.assertIn("translation_tracks_pending", app)
+        self.assertIn("incoming_sequence", app)
+        self.assertIn("sequence_id=sequence", stt)
+        self.assertIn("self.translation_latest", stt)
+        self.assertIn("pending.length", web)
+
     def test_stt_runtime_diagnostics_and_restart_contract(self):
         stt = self.read("stream_voice_bot/stt.py")
         app = self.read("stream_voice_bot/app.py")
