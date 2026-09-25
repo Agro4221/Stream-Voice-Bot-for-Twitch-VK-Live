@@ -280,6 +280,50 @@ class StabilityDatabaseTests(unittest.TestCase):
             second = db.add_history("u", "hello", "twitch", "2026-09-18T20:00:01", external_event_id="twitch:legacy")
             self.assertEqual(first, second)
 
+    def test_legacy_chat_messages_get_duplicate_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-chat-duplicates.sqlite3"
+            import sqlite3
+            conn = sqlite3.connect(path)
+            conn.execute("""
+                CREATE TABLE chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL DEFAULT 'twitch',
+                    username TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "INSERT INTO chat_messages(platform, username, text, created_at) VALUES(?,?,?,?)",
+                ("vkplay", "u", "hello", "2026-09-20T07:00:00"),
+            )
+            conn.execute(
+                "INSERT INTO chat_messages(platform, username, text, created_at) VALUES(?,?,?,?)",
+                ("vkplay", "u", "hello", "2026-09-20T07:00:01"),
+            )
+            conn.commit()
+            conn.close()
+
+            Database(path)
+            with sqlite3.connect(path) as check:
+                count = check.execute(
+                    "SELECT COUNT(*) FROM chat_messages WHERE platform='vkplay' AND message_id IS NULL"
+                ).fetchone()[0]
+            self.assertEqual(count, 2)
+
+            db = Database(path)
+            db.save_chat_message(
+                "vkplay", "42", "channel", "", "", "Jostik",
+                "Привет", "2026-09-20T07:00:02", "{}"
+            )
+            self.assertIsNone(
+                db.save_chat_message(
+                    "vkplay", "42", "channel", "", "", "Jostik",
+                    "Привет ещё раз", "2026-09-20T07:00:03", "{}"
+                )
+            )
+
     def test_legacy_chat_messages_schema_is_migrated(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.sqlite3"
