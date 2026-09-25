@@ -1362,6 +1362,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             # configuration (or may be alive after an inference error). In that
             # case, restart it instead of returning "already works".
             active = bool(stt.thread and stt.thread.is_alive())
+            loading = bool(stt.start_thread and stt.start_thread.is_alive())
             runtime_device = stt.runtime_device
             configured_device = stt.config.device_mode
             needs_restart = active and (
@@ -1373,15 +1374,25 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             )
             if needs_restart:
                 stt.stop()
-                deadline = time.monotonic() + 15.0
-                while time.monotonic() < deadline:
-                    if not (stt.thread and stt.thread.is_alive()) and not (
-                        stt.start_thread and stt.start_thread.is_alive()
-                    ):
-                        break
-                    await asyncio.sleep(0.2)
-                if stt.thread and stt.thread.is_alive():
-                    raise HTTPException(409, "Предыдущий STT ещё не остановился")
+                loading = bool(stt.start_thread and stt.start_thread.is_alive())
+            if loading:
+                # A config change can request stop while the model is still downloading.
+                # Do not race a new start against that loader; wait for the old start worker
+                # to observe stop_event and exit before launching the new configuration.
+                if stt.stop_event.is_set():
+                    deadline = time.monotonic() + 120.0
+                    while time.monotonic() < deadline:
+                        if not (stt.start_thread and stt.start_thread.is_alive()):
+                            break
+                        await asyncio.sleep(0.2)
+                    if stt.start_thread and stt.start_thread.is_alive():
+                        raise HTTPException(409, "Предыдущая загрузка STT ещё не остановилась")
+                else:
+                    return {"ok": True, "state": stt.state(), "restarted": False}
+            if stt.thread and stt.thread.is_alive():
+                if not needs_restart:
+                    return {"ok": True, "state": stt.state(), "restarted": False}
+                raise HTTPException(409, "Предыдущий STT ещё не остановился")
             stt.start()
             return {"ok": True, "state": stt.state(), "restarted": needs_restart}
         except HTTPException:
