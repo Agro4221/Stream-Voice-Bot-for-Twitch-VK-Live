@@ -152,10 +152,28 @@ function New-CpuBuildVenv {
 
     $torchCheck = (& $BuildPython -c "import torch; print(torch.__version__)").Trim()
     if ($torchCheck -notmatch "\+cpu$") {
-        throw "Build environment is not CPU-only (torch=$torchCheck). Refusing to create a GPU-bloated release."
+        throw "Build environment is not CPU-only (torch=$torchCheck). Refusing to create a GPU-bloated PyTorch release."
     }
 
     Write-Host "Build PyTorch: $torchCheck" -ForegroundColor Green
+
+    # The frozen application needs the CUDA-capable sherpa wheel even though
+    # the build runner itself has no NVIDIA GPU. sherpa-onnx still supports the
+    # CPU provider, while users with NVIDIA get CUDA automatically at runtime.
+    Write-Host "Installing CUDA-enabled sherpa-onnx for the portable STT bundle..." -ForegroundColor Cyan
+    Invoke-Checked $BuildPython @(
+        "-m", "pip", "install",
+        "--disable-pip-version-check",
+        "--upgrade", "--force-reinstall",
+        "sherpa-onnx==1.13.7+cuda12.cudnn9",
+        "-f", "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
+    ) "CUDA-capable sherpa-onnx installation failed."
+
+    $sherpaCheck = (& $BuildPython -c "import sherpa_onnx; print(sherpa_onnx.__version__)").Trim()
+    if ($sherpaCheck -notmatch "\+cuda12\.cudnn9$") {
+        throw "Build sherpa-onnx is not the CUDA 12.8 + cuDNN 9 build (version=$sherpaCheck)."
+    }
+    Write-Host "Build sherpa-onnx: $sherpaCheck" -ForegroundColor Green
 }
 
 function New-IcoFromPng {
