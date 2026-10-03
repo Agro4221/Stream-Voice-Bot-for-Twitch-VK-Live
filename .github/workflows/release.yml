@@ -45,14 +45,16 @@ jobs:
               break
             fi
           done < <(
-            gh run list \
-              --repo "${{ github.repository }}" \
-              --workflow exe-build-candidate.yml \
-              --branch exe-packaging-v1.1.9-release-candidate \
-              --status success \
-              --limit 20 \
-              --json databaseId \
-              --jq '.[].databaseId'
+            for branch in feat/sherpa-onnx-gpu-stt exe-packaging-v1.1.9-release-candidate; do
+              gh run list \
+                --repo "${{ github.repository }}" \
+                --workflow exe-build-candidate.yml \
+                --branch "$branch" \
+                --status success \
+                --limit 20 \
+                --json databaseId \
+                --jq '.[].databaseId'
+            done
           )
 
           test -n "$candidate_run"
@@ -93,7 +95,7 @@ jobs:
         shell: bash
         run: |
           if gh api --method PATCH "repos/${{ github.repository }}" \
-            -f description='Windows stream bot: Twitch + VK Video Live, Silero TTS, faster-whisper STT и OBS-субтитры. Сабы пока нестабильны; исправления в работе — я новичок ^_^' \
+            -f description='Windows stream bot: Twitch + VK Video Live, Silero TTS, T-one / sherpa-onnx STT и OBS-субтитры. Сабы пока нестабильны; исправления в работе — я новичок ^_^' \
             >/dev/null 2>&1; then
             echo "Repository description updated."
           else

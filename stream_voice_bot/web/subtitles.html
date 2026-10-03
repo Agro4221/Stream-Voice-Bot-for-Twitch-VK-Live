@@ -22,23 +22,26 @@ const parts = location.pathname.split("/").filter(Boolean);
 const trackId = (parts.length > 1 ? parts[parts.length - 1] : "ru").toLowerCase();
 let lastTs=0;
 async function update(){
+  const debug=document.getElementById('debug');
+  const debugMode=new URLSearchParams(location.search).get('debug')==='1';
   try{
-    const r=await fetch('/api/state',{cache:'no-store'});
+    // Read only this track. OBS does not need the full admin state payload.
+    const r=await fetch('/api/subtitles/debug/'+encodeURIComponent(trackId),{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
     const s=await r.json();
-    const item=s.subtitle?.[trackId] || {};
+    const item=s.state || {};
     const rawText=String(item.text||'');
     const blocked=/(?:subtitles?\s+(?:made|created|provided)\s+by\b|\bdima\s*torzok\b)/i.test(rawText);
     const text=blocked ? '' : rawText;
-    const debug=document.getElementById('debug');
-    if(new URLSearchParams(location.search).get('debug')==='1'){
+    if(debugMode){
       debug.style.display='block';
-      debug.textContent='track='+trackId+' · timestamp='+(item.timestamp||0)+' · text='+(text||'нет текста')+' · tracks='+Object.keys(s.subtitle||{}).join(',');
+      debug.textContent='track='+trackId+' · timestamp='+(item.timestamp||0)+' · text='+(text||'нет текста')+' · configured='+(s.tracks||[]).some(t=>String(t.id||'').toLowerCase()===trackId);
     }
     const ts=Number(item.timestamp||0);
     const el=document.getElementById('sub');
     if(!text && blocked){
-      document.getElementById('sub').textContent='';
-      document.getElementById('sub').classList.remove('show');
+      el.textContent='';
+      el.classList.remove('show');
     }
     if(text && ts!==lastTs){
       lastTs=ts;
@@ -46,7 +49,12 @@ async function update(){
       el.classList.add('show');
       setTimeout(()=>{ if(lastTs===ts) el.classList.remove('show'); }, 6500);
     }
-  }catch(e){}
+  }catch(e){
+    if(debugMode){
+      debug.style.display='block';
+      debug.textContent='track='+trackId+' · ошибка Browser Source: '+e.message;
+    }
+  }
 }
 setInterval(update,250);
 update();

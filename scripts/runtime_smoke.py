@@ -115,16 +115,11 @@ def main() -> None:
             Mock(),
             Mock(return_value=[]),
         )
-        try:
-            service.save_config(chunk_seconds=4.0, overlap_seconds=0.5)
-            try:
-                service.save_config(chunk_seconds=1.0, overlap_seconds=1.0)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("STT accepted overlap >= chunk")
-        finally:
-            pass
+        service.save_config(language="ru", input_device=0)
+        assert service.config.language == "ru"
+        assert service.config.input_device == 0
+        assert service.state()["engine"] == "T-one / sherpa-onnx"
+        assert service.state()["provider"] is None
 
     # Full application construction plus real HTTP routes.
     with tempfile.TemporaryDirectory() as tmp:
@@ -153,11 +148,12 @@ def main() -> None:
                 assert normalized_response.status_code == 200
                 assert "процентов" in normalized_response.json()["normalized"]
 
-                invalid_stt = await client.post(
+                stt_config = await client.post(
                     "/api/stt/config",
-                    json={"chunk_seconds": 1.0, "overlap_seconds": 1.0},
+                    json={"language": "ru"},
                 )
-                assert invalid_stt.status_code == 400, invalid_stt.text
+                assert stt_config.status_code == 200, stt_config.text
+                assert stt_config.json()["state"]["engine"] == "T-one / sherpa-onnx"
 
                 class FakeServer:
                     should_exit = False

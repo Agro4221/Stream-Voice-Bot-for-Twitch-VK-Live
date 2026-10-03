@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import sounddevice as sd
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -83,10 +84,11 @@ class NormalizeRequest(BaseModel):
 
 
 class STTConfigRequest(BaseModel):
-    model_name: str | None = None
     language: str | None = None
     input_device: int | None = None
     sample_rate: int | None = None
+    # Legacy fields are accepted from old clients but ignored by the T-one backend.
+    model_name: str | None = None
     chunk_seconds: float | None = Field(default=None, ge=1, le=10)
     overlap_seconds: float | None = Field(default=None, ge=0, le=3)
     beam_size: int | None = Field(default=None, ge=1, le=10)
@@ -263,7 +265,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         return bool(_SUBTITLE_CREDIT_RE.search(" ".join(str(value or "").split())))
 
     subtitle_state = {
-        str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru")}
+        str(t.get("id", "ru")): {"text": "", "timestamp": 0, "language": t.get("language", "ru"), "sequence": 0}
         for t in subtitle_tracks
     }
 
@@ -307,10 +309,20 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         is_translated = data.get("source") is False
         with subtitle_lock:
             if is_translated and explicit_track and explicit_track in subtitle_state:
+                incoming_sequence = data.get("sequence")
+                current_sequence = int(subtitle_state[explicit_track].get("sequence", 0) or 0)
+                if incoming_sequence is not None:
+                    try:
+                        incoming_sequence = int(incoming_sequence)
+                    except (TypeError, ValueError):
+                        incoming_sequence = None
+                if incoming_sequence is not None and incoming_sequence < current_sequence:
+                    return
                 subtitle_state[explicit_track].update({
                     "text": data.get("text", ""),
                     "timestamp": data.get("timestamp", time.time()),
                     "language": data.get("language", explicit_track),
+                    "sequence": incoming_sequence if incoming_sequence is not None else current_sequence + 1,
                 })
                 return
 
@@ -322,11 +334,18 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
             ]
             for t in source_tracks or [{"id": "ru", "language": data.get("language", "ru")}]:
                 tid = str(t.get("id", "ru"))
-                subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": ""})
+                subtitle_state.setdefault(tid, {"text": "", "timestamp": 0, "language": "", "sequence": 0})
+                current_sequence = int(subtitle_state[tid].get("sequence", 0) or 0)
+                incoming_sequence = data.get("sequence")
+                try:
+                    incoming_sequence = int(incoming_sequence) if incoming_sequence is not None else current_sequence + 1
+                except (TypeError, ValueError):
+                    incoming_sequence = current_sequence + 1
                 subtitle_state[tid].update({
                     "text": data.get("text", ""),
                     "timestamp": data.get("timestamp", time.time()),
                     "language": data.get("language", t.get("language", "ru")),
+                    "sequence": max(current_sequence + 1, incoming_sequence),
                 })
 
     def on_twitch_status(data: dict):
@@ -1114,7 +1133,7 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         with subtitle_lock:
             active_ids = {t["id"] for t in subtitle_tracks}
             for t in subtitle_tracks:
-                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"]})
+                state = subtitle_state.setdefault(t["id"], {"text":"", "timestamp":0, "language":t["language"], "sequence":0})
                 state["language"] = t["language"]
                 if not t.get("enabled", True):
                     state.update({"text": "", "timestamp": 0})
@@ -1134,21 +1153,59 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         with subtitle_lock:
             return {"ok": True, "track_id": track_id, "state": subtitle_state.get(track_id), "tracks": subtitle_tracks}
 
+    async def _test_subtitle_track(track: dict):
+        test_text = "Тест субтитров ✓"
+        track_id = str(track.get("id", "")).strip().lower()
+        language = str(track.get("language", "ru")).strip().lower().split("-")[0] or "ru"
+        mode = str(track.get("mode", "source")).strip()
+        source_language = (db.get_setting("stt_language", "ru") or "ru").strip().lower().split("-")[0] or "ru"
+        rendered = test_text
+        if mode == "translate" and language != source_language:
+            try:
+                rendered = await asyncio.to_thread(
+                    translator.translate,
+                    test_text,
+                    source_language,
+                    language,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Перевод {source_language} → {language} не готов: {type(exc).__name__}: {exc}"
+                ) from exc
+        ts = time.time()
+        with subtitle_lock:
+            subtitle_state.setdefault(
+                track_id,
+                {"text": "", "timestamp": 0, "language": language, "sequence": 0},
+            )
+            next_sequence = int(subtitle_state[track_id].get("sequence", 0) or 0) + 1
+            subtitle_state[track_id].update({
+                "text": rendered,
+                "timestamp": ts,
+                "language": language,
+                "sequence": next_sequence,
+            })
+        return {
+            "ok": True,
+            "track_id": track_id,
+            "text": rendered,
+            "timestamp": ts,
+            "language": language,
+            "mode": mode,
+        }
+
     @app.post("/api/subtitles/test/{track_id}")
     async def subtitle_track_test(track_id: str):
         track_id = str(track_id or "").strip().lower()
         if not re.fullmatch(r"[a-z0-9_-]{1,32}", track_id):
             raise HTTPException(400, "Invalid subtitle track id")
-        with subtitle_lock:
-            if track_id not in subtitle_state:
-                raise HTTPException(404, "Subtitle track not found")
-            ts = time.time()
-            subtitle_state[track_id].update({
-                "text": "Тест субтитров ✓",
-                "timestamp": ts,
-                "language": subtitle_state[track_id].get("language", "ru"),
-            })
-        return {"ok": True, "track_id": track_id, "text": "Тест субтитров ✓", "timestamp": ts}
+        track = next((t for t in subtitle_tracks if str(t.get("id", "")).strip().lower() == track_id), None)
+        if track is None:
+            raise HTTPException(404, "Subtitle track not found. Сначала сохрани дорожку.")
+        try:
+            return await _test_subtitle_track(track)
+        except RuntimeError as exc:
+            raise HTTPException(500, str(exc)) from exc
 
     @app.post("/api/subtitles/test")
     async def subtitles_test():
@@ -1157,10 +1214,33 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
         on_subtitle({
             "source": True,
             "text": test_text,
-            "language": "ru",
+            "language": db.get_setting("stt_language", "ru") or "ru",
             "timestamp": ts,
         })
-        return {"ok": True, "text": test_text, "timestamp": ts}
+        pending = []
+        for track in subtitle_tracks:
+            if not track.get("enabled", True) or str(track.get("mode", "source")) != "translate":
+                continue
+            track_id = str(track.get("id", "")).strip().lower()
+            task = asyncio.create_task(
+                _test_subtitle_track(track),
+                name=f"subtitle-test-{track_id or 'track'}",
+            )
+            pending.append(track_id)
+
+            def _report_translation_result(done_task, tid=track_id):
+                try:
+                    done_task.result()
+                except Exception as exc:
+                    log.warning("Subtitle test failed for track %s: %s", tid, exc)
+
+            task.add_done_callback(_report_translation_result)
+        return {
+            "ok": True,
+            "text": test_text,
+            "timestamp": ts,
+            "translation_tracks_pending": pending,
+        }
 
     @app.post("/api/subtitles/prepare")
     async def subtitles_prepare():
@@ -1172,54 +1252,28 @@ def create_app(root: Path, data_root: Path | None = None) -> FastAPI:
     # ---- STT ----
     @app.post("/api/stt/config")
     async def stt_config(req: STTConfigRequest):
-        current_chunk = stt.config.chunk_seconds
-        current_overlap = stt.config.overlap_seconds
-        if req.device_mode is not None and req.device_mode not in {"auto", "cuda", "cpu"}:
-            raise HTTPException(400, "Unknown STT device mode")
-        chunk = req.chunk_seconds if req.chunk_seconds is not None else current_chunk
-        overlap = req.overlap_seconds if req.overlap_seconds is not None else current_overlap
-        if overlap >= chunk:
-            raise HTTPException(400, "STT overlap_seconds must be smaller than chunk_seconds")
         kwargs = req.model_dump(exclude_none=True)
         try:
             was_running = bool(stt.thread and stt.thread.is_alive())
-            previous_model = stt.config.model_name
-            previous_device = stt.config.device_mode
+            previous_input = stt.config.input_device
+            previous_language = stt.config.language
             stt.save_config(**kwargs)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
 
-        changed_runtime = (
-            was_running
-            and (
-                previous_model != stt.config.model_name
-                or previous_device != stt.config.device_mode
-            )
+        changed_runtime = was_running and (
+            previous_input != stt.config.input_device
+            or previous_language != stt.config.language
         )
         if changed_runtime:
-            # Do not silently keep an old CUDA/CPU model after the user saved
-            # a different device/model. Stop the current worker; the UI can
-            # then start the newly selected configuration deterministically.
             stt.stop()
-
         return {"ok": True, "restart_required": changed_runtime, "state": stt.state()}
 
     @app.post("/api/stt/start")
     async def stt_start():
         try:
-            # A running worker may still belong to a previous CPU/GPU
-            # configuration (or may be alive after an inference error). In that
-            # case, restart it instead of returning "already works".
             active = bool(stt.thread and stt.thread.is_alive())
-            runtime_device = stt.runtime_device
-            configured_device = stt.config.device_mode
-            needs_restart = active and (
-                bool(stt.last_error)
-                or (
-                    configured_device in {"cpu", "cuda"}
-                    and runtime_device not in {None, configured_device}
-                )
-            )
+            needs_restart = active and bool(stt.last_error)
             if needs_restart:
                 stt.stop()
                 deadline = time.monotonic() + 15.0

@@ -26,20 +26,23 @@ class StabilityDatabaseTests(unittest.TestCase):
         )
         self.assertFalse(stt_module._should_skip_segment(Segment(), "Привет, это тест."))
 
-    def test_stt_model_and_device_changes_do_not_break_active_model(self):
+    def test_stt_settings_keep_active_backend(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Database(Path(tmp) / "test.sqlite3")
             service = stt_module.STTService(db, lambda _: None, lambda _: None)
             active_model = object()
             service.model = active_model
-            service.runtime_device = "cpu"
-            service.loaded_model_key = ("large-v3-turbo", "cpu")
+            service.recognizer = active_model
+            service.runtime_device = "cuda"
+            service.loaded_model_key = ("t-one-russian", "cuda")
 
-            service.save_config(model_name="small", device_mode="cuda")
+            service.save_config(language="ru", input_device=7)
 
             self.assertIs(service.model, active_model)
-            self.assertEqual(service.config.model_name, "small")
-            self.assertEqual(service.config.device_mode, "cuda")
+            self.assertIs(service.recognizer, active_model)
+            self.assertEqual(service.runtime_device, "cuda")
+            self.assertEqual(service.loaded_model_key, ("t-one-russian", "cuda"))
+            self.assertEqual(service.config.input_device, 7)
 
     def test_stt_falls_back_to_device_supported_sample_rate(self):
         with tempfile.TemporaryDirectory() as tmp:
