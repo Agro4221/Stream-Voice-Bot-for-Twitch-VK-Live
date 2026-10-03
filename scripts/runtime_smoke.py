@@ -146,9 +146,11 @@ def main() -> None:
                 assert payload["app"]["version"] == version
                 assert payload["queue"]["current"] is None
 
+                auth_headers = {"X-StreamVoiceBot-Local": app.state.local_api_token}
                 normalized_response = await client.post(
                     "/api/tts/normalize",
                     json={"text": "Привет 25% и 12:30!"},
+                    headers=auth_headers,
                 )
                 assert normalized_response.status_code == 200
                 assert "процентов" in normalized_response.json()["normalized"]
@@ -156,6 +158,7 @@ def main() -> None:
                 invalid_stt = await client.post(
                     "/api/stt/config",
                     json={"chunk_seconds": 1.0, "overlap_seconds": 1.0},
+                    headers=auth_headers,
                 )
                 assert invalid_stt.status_code == 400, invalid_stt.text
 
@@ -164,7 +167,7 @@ def main() -> None:
 
                 fake_server = FakeServer()
                 app.state.server = fake_server
-                shutdown = await client.post("/api/shutdown")
+                shutdown = await client.post("/api/shutdown", headers=auth_headers)
                 assert shutdown.status_code == 200, shutdown.text
                 deadline = time.time() + 3.0
                 while time.time() < deadline and not fake_server.should_exit:
@@ -182,11 +185,11 @@ def main() -> None:
             self.rows = {}
             self.lock = threading.Lock()
 
-        def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued"):
+        def add_history(self, username, text, source, created_at, repeat_of=None, profile="normal", status="queued", external_event_id=None):
             with self.lock:
                 hid = self.next_id
                 self.next_id += 1
-                self.rows[hid] = {"id": hid, "status": status}
+                self.rows[hid] = {"id": hid, "status": status, "external_event_id": external_event_id}
                 return hid
 
         def set_history_status(self, hid, status, duration_sec=None):
@@ -224,12 +227,14 @@ def main() -> None:
             self.last_sample_rate = 48000
             self._paused = False
             self._stopped = False
+            self.play_calls = 0
 
         @property
         def paused(self):
             return self._paused
 
         def play(self, *_args, **_kwargs):
+            self.play_calls += 1
             return "stopped" if self._stopped else "finished"
 
         def pause(self):
@@ -245,6 +250,9 @@ def main() -> None:
         def skip(self):
             self._stopped = True
             self._paused = False
+
+        def clear_interrupts(self):
+            self._stopped = False
 
     fake_db = FakeDB()
     blocking_model = BlockingModel()
@@ -270,6 +278,39 @@ def main() -> None:
         assert fake_db.get_history(first_id)["status"] == "finished"
     finally:
         queue.shutdown()
+
+    # Stop during Silero generation must prevent the generated audio from
+    # reaching the player once generation returns.
+    stop_db = FakeDB()
+    stop_model = BlockingModel()
+    stop_player = FakePlayer()
+    stop_queue = tts_module.TTSQueue(
+        model=stop_model,
+        player=stop_player,
+        speaker_getter=lambda: "xenia",
+        history_db=stop_db,
+        max_chars_getter=lambda: 1000,
+        volume_setter=lambda: 0.0,
+    )
+    try:
+        stop_id = stop_queue.enqueue(QueueItem("stop during generation", "u3", "test"))
+        assert stop_model.started.wait(5)
+        stop_queue.stop()
+        stop_model.release.set()
+        deadline = time.time() + 5
+        while time.time() < deadline and stop_db.get_history(stop_id)["status"] not in {"stopped", "finished", "error"}:
+            time.sleep(0.05)
+        assert stop_db.get_history(stop_id)["status"] == "stopped"
+        assert stop_player.play_calls == 0
+
+        second_id = stop_queue.enqueue(QueueItem("after stop", "u4", "test"))
+        deadline = time.time() + 5
+        while time.time() < deadline and stop_db.get_history(second_id)["status"] not in {"finished", "error"}:
+            time.sleep(0.05)
+        assert stop_db.get_history(second_id)["status"] == "finished"
+        assert stop_player.play_calls == 1
+    finally:
+        stop_queue.shutdown()
 
     # Basic normalization should remain usable under the installed dependency set.
     normalized = normalize_module.normalize_for_tts("Привет 25% и 12:30!")
